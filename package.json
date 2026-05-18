@@ -1,0 +1,15 @@
+{
+  "name": "timesheet",
+  "version": "0.2.0",
+  "description": "Personal time sheet web app with multi-segment days, configurable pay periods, and PTO tracking.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -l 5173",
+    "build": "node scripts/build.mjs",
+    "test": "echo 'No tests yet. See docs/CONTEXT.md.' && exit 0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Sheet</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>Time Sheet</h1>
+    <div class="row" style="gap:8px">
+      <span class="sync-status" id="syncStatus"><span class="sync-dot"></span><span id="syncText">synced</span></span>
+      <span class="user-badge"><span id="userName">You</span> · <span class="role" id="userRole">owner</span></span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-view="dashboard">Pay Period</button>
+    <button class="tab" data-view="log">Daily Log</button>
+    <button class="tab" data-view="paychecks">Paychecks</button>
+    <button class="tab" data-view="settings">Settings</button>
+  </div>
+
+  <!-- DASHBOARD VIEW -->
+  <div class="view active" id="view-dashboard">
+    <div class="card">
+      <h3 class="card-title">Pay Period</h3>
+      <div class="pp-selector">
+        <button data-pp="current" class="active">Current</button>
+        <button data-pp="last">Last</button>
+        <button data-pp="other">Other</button>
+      </div>
+      <div id="ppOtherPicker" style="display:none">
+        <label>Pick any date in the desired period</label>
+        <input type="date" id="ppOtherDate">
+      </div>
+      <div id="ppRange" class="muted" style="font-size:13px;margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Period Totals</h3>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">Total</div><div class="stat-value" id="ppTotal">0.0</div><div class="stat-sub">hours</div></div>
+        <div class="stat"><div class="stat-label">Regular</div><div class="stat-value" id="ppRegular">0.0</div><div class="stat-sub">hours</div></div>
+        <div class="stat"><div class="stat-label">OT</div><div class="stat-value" id="ppOT">0.0</div><div class="stat-sub">hours</div></div>
+        <div class="stat"><div class="stat-label">Time off</div><div class="stat-value" id="ppTimeOff">0.0</div><div class="stat-sub">hours</div></div>
+      </div>
+    </div>
+
+    <div id="weekBreakdown"></div>
+
+    <div class="card">
+      <h3 class="card-title">Time-Off Balances (YTD)</h3>
+      <div id="balancesList"></div>
+    </div>
+  </div>
+
+  <!-- DAILY LOG VIEW -->
+  <div class="view" id="view-log">
+    <div class="card">
+      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div>
+          <label style="margin:0">Year</label>
+          <select id="logYear" style="width:auto"></select>
+        </div>
+        <button class="btn btn-primary" id="btnAddEntry">+ New Entry</button>
+      </div>
+      <div class="row">
+        <input type="text" id="logSearch" placeholder="Search notes or filter…" />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+        <h3 style="margin:0;font-size:15px" id="logMonthTitle">Entries</h3>
+        <span class="badge" id="logCount">0</span>
+      </div>
+      <div id="entriesList"></div>
+    </div>
+  </div>
+
+  <!-- PAYCHECKS VIEW -->
+  <div class="view" id="view-paychecks">
+    <div class="card">
+      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div>
+          <label style="margin:0">Filter year</label>
+          <select id="payYearFilter" style="width:auto"></select>
+        </div>
+        <button class="btn btn-primary" id="btnAddPay">+ Add Paycheck</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">YTD Gross</div><div class="stat-value" id="ytdGross">$0</div></div>
+        <div class="stat"><div class="stat-label">YTD Take-Home</div><div class="stat-value" id="ytdNet">$0</div></div>
+        <div class="stat"><div class="stat-label">YTD Hours</div><div class="stat-value" id="ytdHours">0</div></div>
+        <div class="stat"><div class="stat-label">Taxes / Deductions</div><div class="stat-value" id="ytdTax">$0</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Pay History</h3>
+      <div class="pay-row" style="font-weight: 600; color: var(--text-2);">
+        <div>Pay Date</div>
+        <div class="num">Gross</div>
+        <div class="num">Take Home</div>
+        <div class="num">Hours</div>
+      </div>
+      <div id="paysList"></div>
+    </div>
+  </div>
+
+  <!-- SETTINGS VIEW -->
+  <div class="view" id="view-settings">
+    <div class="card">
+      <h3 class="card-title">Pay Period</h3>
+      <div class="row">
+        <div class="grow">
+          <label>System</label>
+          <select id="setSystem">
+            <option value="weekly">Weekly</option>
+            <option value="biweekly" selected>Bi-weekly (every 2 weeks)</option>
+            <option value="semimonthly">Semi-monthly (twice a month)</option>
+            <option value="monthly">Monthly</option>
+            <option value="advanced">Advanced (custom anchor)</option>
+          </select>
+          <div class="help" id="systemHelp">Two-week cycle, configurable start day.</div>
+        </div>
+      </div>
+
+      <div id="setStartDowRow" class="row" style="margin-top: 10px;">
+        <div class="grow">
+          <label>Period starts on</label>
+          <select id="setStartDow">
+            <option value="0">Sunday</option>
+            <option value="1" selected>Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+        <div class="grow" id="setBiweeklyRefRow" style="display:none">
+          <label>Anchor week (any past period-start date)</label>
+          <input type="date" id="setBiweeklyRef">
+          <div class="help">Used to know which Monday begins each 2-week cycle.</div>
+        </div>
+      </div>
+
+      <div id="setSemiMonthlyRow" class="row" style="margin-top: 10px; display:none">
+        <div class="grow">
+          <label>First period: day-of-month</label>
+          <input type="number" id="setSemi1" min="1" max="28" value="1">
+        </div>
+        <div class="grow">
+          <label>Second period: day-of-month</label>
+          <input type="number" id="setSemi2" min="2" max="31" value="16">
+        </div>
+      </div>
+
+      <div id="setMonthlyRow" class="row" style="margin-top: 10px; display:none">
+        <div class="grow">
+          <label>Period starts on day-of-month</label>
+          <input type="number" id="setMonthlyStart" min="1" max="28" value="1">
+        </div>
+      </div>
+
+      <div id="setAdvancedRow" style="display:none">
+        <div class="row" style="margin-top: 10px;">
+          <div class="grow">
+            <label>Anchor start date</label>
+            <input type="date" id="setAnchor">
+          </div>
+          <div class="grow">
+            <label>Cycle length (days)</label>
+            <input type="number" id="setCycleDays" min="1" max="60" step="1" value="14">
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 10px;">
+        <div class="grow">
+          <label>Standard hours / week (OT threshold)</label>
+          <input type="number" id="setOTThreshold" min="0" max="80" step="0.5" value="40">
+        </div>
+        <div class="grow">
+          <label>Break duration (minutes, segments &gt; 5h on weekdays)</label>
+          <input type="number" id="setBreakMin" min="0" max="120" step="5" value="30">
+        </div>
+      </div>
+
+      <div class="stat" style="margin-top:12px;background:var(--surface-2)">
+        <div class="stat-label">Current period preview</div>
+        <div id="setPreview" style="font-size:14px;font-weight:500;margin-top:4px"></div>
+      </div>
+
+      <button class="btn btn-primary" id="btnSavePP" style="margin-top:10px">Save</button>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Time-Off Types & Pools</h3>
+      <div id="timeOffTypesList"></div>
+      <button class="btn" id="btnAddTOType" style="margin-top:8px">+ Add type</button>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Companies</h3>
+      <div id="companiesList"></div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="newCompany" placeholder="New company name…" class="grow">
+        <button class="btn" id="btnAddCompany">Add</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Profile</h3>
+      <div class="row">
+        <div class="grow">
+          <label>Your name</label>
+          <input type="text" id="setName">
+        </div>
+        <div class="grow">
+          <label>Current role</label>
+          <select id="setRole">
+            <option value="owner">Owner (self)</option>
+            <option value="employee">Employee</option>
+            <option value="supervisor">Supervisor</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="help" style="margin-top:6px">Roles are scaffolded for future multi-tenant use. In personal mode, you're the owner of your own data.</div>
+      <button class="btn btn-primary" id="btnSaveProfile" style="margin-top:10px">Save</button>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Data</h3>
+      <div class="row">
+        <button class="btn" id="btnExport">Export JSON</button>
+        <button class="btn" id="btnExportCSV">Export Entries CSV</button>
+        <button class="btn" id="btnImport">Import JSON</button>
+        <input type="file" id="importFile" accept=".json" style="display:none">
+      </div>
+      <div class="danger-zone" style="margin-top:10px">
+        <h4>Danger zone</h4>
+        <button class="btn btn-danger btn-sm" id="btnClearAll">Reset all data</button>
+        <div class="help" style="margin-top:6px">Erases entries, paychecks, and settings. Cannot be undone.</div>
+      </div>
+    </div>
+
+    <div class="card" style="background: var(--purple-bg); border-color: var(--purple);">
+      <h3 class="card-title" style="color: var(--purple)">Roadmap</h3>
+      <div style="font-size: 13px; color: var(--text)">
+        <strong>Coming later:</strong> Multi-company employer dashboard, supervisor approval flow, biometric/badge-based punch integration, employee read-only view. The data model (companies, users, roles, scopes) is already scaffolded so migration will be seamless.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ENTRY EDIT MODAL -->
+<div class="modal-bg" id="entryModal">
+  <div class="modal">
+    <h2 id="entryModalTitle">Edit Entry</h2>
+    <div class="row">
+      <div class="grow">
+        <label>Date</label>
+        <input type="date" id="eDate">
+      </div>
+    </div>
+
+    <div style="margin-top: 12px;">
+      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <label style="margin: 0;">Work segments</label>
+        <button class="btn btn-sm" id="btnAddSegment" type="button">+ Add segment</button>
+      </div>
+      <div id="segmentsList"></div>
+      <div class="help">Each segment is one in→out span. Add multiple for the same day if you clock out during the day. Break is only deducted from segments longer than 5 hours on weekdays.</div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="grow">
+        <label>Time off</label>
+        <select id="eTimeOff"><option value="">— None —</option></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="grow">
+        <label>Notes</label>
+        <textarea id="eNotes" placeholder="Optional notes / comments…"></textarea>
+      </div>
+    </div>
+    <div class="stat" style="margin-top:10px;background:var(--primary-bg)">
+      <div class="stat-label">Hours worked (computed)</div>
+      <div class="stat-value" id="eComputedHours">0.00</div>
+    </div>
+    <div class="row" style="justify-content: space-between; margin-top: 14px;">
+      <button class="btn btn-danger" id="btnDeleteEntry">Delete</button>
+      <div class="row">
+        <button class="btn" id="btnCancelEntry">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveEntry">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAY EDIT MODAL -->
+<div class="modal-bg" id="payModal">
+  <div class="modal">
+    <h2 id="payModalTitle">Add Paycheck</h2>
+    <div class="row">
+      <div class="grow"><label>Pay date</label><input type="date" id="pDate"></div>
+      <div class="grow">
+        <label>Company</label>
+        <select id="pCompany"></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="grow"><label>Gross pay</label><input type="number" id="pGross" step="0.01" min="0"></div>
+      <div class="grow"><label>Take home</label><input type="number" id="pNet" step="0.01" min="0"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="grow">
+        <label>Hours worked</label>
+        <input type="number" id="pHours" step="0.25" min="0">
+        <div class="help">
+          <button class="btn-ghost btn-sm" id="btnPullHours" type="button">↻ Pull from time log for this period</button>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="justify-content: space-between; margin-top: 14px;">
+      <button class="btn btn-danger" id="btnDeletePay">Delete</button>
+      <div class="row">
+        <button class="btn" id="btnCancelPay">Cancel</button>
+        <button class="btn btn-primary" id="btnSavePay">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
