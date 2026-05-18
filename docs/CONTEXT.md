@@ -44,8 +44,12 @@ log and `supabase/policies.sql`). **Step 5b is complete (5b.1, 5b.2,
 RemoteStore + dispatcher, and RemoteStore reads are wired for profile,
 settings, companies, time_off_types, schemaVersion, entries, and pays.
 The entire read path now routes through Supabase when signed in. Writes
-still go through localStorage. **Step 5c (write path migration) is the
-next major work.**
+still go through localStorage. A critical seed-suppression patch was
+applied on top of 5b: `loadAll()` no longer treats signed-in users as
+first-run, so Ravi's hardcoded 128-entry + 88-pay seed never loads
+(and, post-5c, never writes) into other users' accounts. **Step 5b is
+now truly complete and safe to build 5c on. Step 5c (write path
+migration) is the next major work.**
 
 ## Primary account
 
@@ -92,6 +96,22 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Critical fix before 5c: suppress legacy seed in remote mode
+
+- Bug: `loadAll()` first-run detection (`!schema && !entries &&
+  !pays`) flagged EVERY signed-in Supabase user as first-run,
+  because `ts:schemaVersion` is never stored remotely. This loaded
+  Ravi's hardcoded 128 entries + 88 pays from `src/data/seed.js`
+  into every user's in-memory state.
+- Severity: cosmetic today (RemoteStore.set is still a stub), but a
+  data-pollution landmine once 5c implements writes: the first
+  signin after a 5c deploy would persist Ravi's old data into that
+  user's Supabase account.
+- Fix: gate first-run on `getStorageMode() === 'local'`. Signed-in
+  users get a clean empty workspace; their data comes from Supabase
+  or explicit import. Had to land BEFORE 5c, not after.
+- 5b is now truly complete and safe to build 5c on.
 
 ### May 18, 2026 — Phase 3 Step 5b.3 + 5b.4: remote reads complete
 
