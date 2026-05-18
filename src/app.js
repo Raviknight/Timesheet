@@ -15,6 +15,7 @@ import {
   migrateEntries,
 } from './data/schema.js';
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
+import { ensureBootstrapped } from './data/bootstrap.js';
 
 import { renderTopBar, setSync, setSyncIdle } from './ui/topbar.js';
 import { toast } from './ui/toast.js';
@@ -133,6 +134,26 @@ async function init() {
 }
 
 async function bootApp() {
+  // Get the current session so we have user info
+  const session = await getCurrentSession();
+  if (!session) {
+    showAuthView();
+    return;
+  }
+
+  // Ensure user is bootstrapped in Supabase (creates profile/company
+  // on first sign-in, no-op otherwise)
+  try {
+    const profile = await ensureBootstrapped(session.user.id, session.user.email);
+    console.log('User profile ready:', profile);
+  } catch (e) {
+    console.error('Bootstrap failed:', e);
+    toast('Failed to set up account: ' + e.message);
+    return;
+  }
+
+  // Continue with existing localStorage-based loading for now
+  // (5b will replace this with Supabase reads)
   await loadAll();
   renderTopBar(state.profile);
   updateSignOutVisibility(true);
