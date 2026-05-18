@@ -32,9 +32,10 @@ gating app boot. **Step 8 is active**, brought forward out of order:
 `.github/workflows/deploy.yml` builds and publishes `dist/` to Pages on
 every push to main, fixing the unbundled-root-index.html serving bug found
 during Step 4 testing. Awaiting one manual step: switch the Pages source to
-"GitHub Actions" in repo settings. Step 5 (storage layer migration to move
-persistence from `window.storage`/`localStorage` onto Supabase) is still
-the next major work after that.
+"GitHub Actions" in repo settings. **Step 5a is complete:** new users
+get their profile, company, membership, and default time-off types
+created in Supabase on first sign-in. Step 5b (move entries/pays reads
+off `localStorage` onto Supabase) is the next major work.
 
 ## Next likely tasks
 
@@ -73,6 +74,16 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 5a complete: bootstrap logic added
+- New users on first sign-in get profile, company, membership, and
+  default time-off types created in Supabase. localStorage still
+  backs entries/pays (5b/5c to follow).
+- `src/data/bootstrap.js` added: `getExistingProfile`,
+  `bootstrapNewUser`, `ensureBootstrapped`. Inserts in RLS dependency
+  order (company → company_members → profile → time_off_types).
+- `bootApp()` in `src/app.js` now calls `ensureBootstrapped()` after
+  session check, before the existing `loadAll()` path.
 
 ### May 18, 2026 — Step 8 brought forward: GitHub Actions deploy
 - Discovered during Step 4 testing that GitHub Pages was serving
