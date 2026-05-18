@@ -242,20 +242,61 @@ Tasks:
 **Deliverable:** Users can sign up, verify email, log in, log out.
 
 ### STEP 5 — Storage layer migration
-**Status:** Not started
+**Status:** In progress. Substeps:
+- **5a Complete** — bootstrap: first-login creates profile, default
+  company, membership, and default time-off types in Supabase.
+  Landed with RLS policy debt (companies INSERT/SELECT loosened to
+  resolve a 42501 rejection; company_members policy rewritten to fix
+  infinite recursion). Tracked as Phase 4 tightening.
+- **5b Complete (5b.1-5b.4)** — read path: `src/data/storage.js`
+  split into LocalStore + RemoteStore + dispatcher; RemoteStore.get
+  implemented for profile, settings, companies, time_off_types,
+  schemaVersion, entries, pays. Plus a seed-suppression patch so the
+  legacy 128-entry/88-pay seed never loads for signed-in users.
+- **5c.1 Complete** — write path (profile + settings): RemoteStore.set
+  upserts profile and settings by user_id. Verified persisting.
+- **5c.2 / 5c.3 / 5c.4 Not started** — entries write, pays write,
+  companies + time_off_types write. Diff-and-write (Option A) with a
+  module-level cache of last-loaded entries/pays.
 **Est:** 2-3 hours, code changes
 
 Replace `src/data/storage.js` (currently calls `window.storage`/localStorage)
 with a version that calls Supabase. The abstraction layer makes this clean.
 
 Tasks:
-- [ ] New `Store` implementation backed by Supabase tables
-- [ ] Handle loading states (data now arrives async)
+- [x] New `Store` implementation backed by Supabase tables (reads +
+  profile/settings writes; entries/pays writes pending in 5c.2-5c.4)
+- [~] Handle loading states (data now arrives async) — basic syncing
+  indicator wired; loading spinners deferred to Step 9
 - [ ] Offline handling: if network fails, fall back to localStorage cache + retry
-- [ ] First-login: create profile, default company, default time-off types
+- [x] First-login: create profile, default company, default time-off types
 
 **Deliverable:** All app data flows through Supabase. Test by signing up two
 test accounts; each should see only their own data.
+
+### STEP 5.5 — Legacy Excel import (one-off script)
+**Status:** Not started
+**Est:** 1 hour, one-off script
+**Where:** local script, not shipped in the app bundle
+
+New sub-step inserted between 5c and Step 7. Step 7 covers the
+in-app JSON import UI; this step is the bulk backfill of Ravi's
+historical data that predates the app.
+
+Tasks:
+- [ ] One-off Node script that reads `Time_Sheet_2026.xlsx` (and the
+  2025 legacy data) and writes directly to Supabase
+- [ ] Use the **service_role key** (bypasses RLS; never commit it,
+  pass via env var at runtime)
+- [ ] Target the primary account: raviknight@outlook.com
+- [ ] Map Excel rows to the `entries` and `pays` table shapes
+- [ ] Idempotent: safe to re-run (upsert on the natural keys
+  `(user_id, company_id, date)`)
+- [ ] Verify counts after run (expected ~128 entries + ~88 pays,
+  plus the 2025 legacy rows)
+
+**Deliverable:** Ravi's full 2025 + 2026 history lives in his
+Supabase account, independent of the in-app importer.
 
 ### STEP 6 — Demo seed for logged-out visitors
 **Status:** DEFERRED until first non-Ravi user is invited
@@ -282,20 +323,24 @@ Tasks:
 his password.
 
 ### STEP 8 — GitHub Actions deploy with secrets
-**Status:** In progress (workflow created, awaiting Pages settings change in
-GitHub UI). Brought ahead of Step 5: a deployment-path bug found during Step 4
-live-site testing (Pages was serving the unbundled root `index.html`, which
-fails on bare module specifiers like `@supabase/supabase-js`) made automated
-build+deploy of `dist/` the priority. Anon key stays hardcoded in
-`src/data/supabase.js` (public by design, RLS is the guard), so no GitHub
-secrets are needed yet; the env-var injection sub-tasks below remain deferred.
+**Status:** Complete. Brought ahead of Step 5: a deployment-path bug found
+during Step 4 live-site testing (Pages was serving the unbundled root
+`index.html`, which fails on bare module specifiers like
+`@supabase/supabase-js`) made automated build+deploy of `dist/` the priority.
+`.github/workflows/deploy.yml` builds on every push to main and publishes
+`dist/` to Pages; the Pages source has been switched to "GitHub Actions" and
+end-to-end production testing this session (signup → verify → signin →
+bootstrap → persist) confirms the deploy path works. Anon key stays hardcoded
+in `src/data/supabase.js` (public by design, RLS is the guard), so no GitHub
+secrets are needed; the env-var injection sub-tasks remain deferred (not
+required for personal-use-first scope).
 **Est:** 30 min
 
 Tasks:
-- [ ] Add Supabase URL and anon key as GitHub repo secrets
-- [ ] Add `.github/workflows/deploy.yml` (the one I shared earlier, plus env var injection)
-- [ ] Switch Pages source to "GitHub Actions"
-- [ ] Push and confirm site rebuilds + deploys automatically
+- [ ] ~~Add Supabase URL and anon key as GitHub repo secrets~~ DEFERRED (anon key public by design, hardcoded; RLS is the guard)
+- [x] Add `.github/workflows/deploy.yml` (builds `dist/` and publishes to Pages)
+- [x] Switch Pages source to "GitHub Actions"
+- [x] Push and confirm site rebuilds + deploys automatically
 
 **Deliverable:** `git push` → site live in 60 seconds with full Supabase backend.
 

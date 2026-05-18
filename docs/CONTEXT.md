@@ -25,31 +25,19 @@ records from `Time_Sheet_2026.xlsx`.
 ## What's in flight
 
 **Phase 3 (Supabase migration) is active.** See `docs/PHASE_3_PLAN.md`.
-Steps 1-4 complete: project provisioned, schema + policies deployed,
-`src/data/supabase.js` integrated and connection-verified (entries row
-count 0), and the auth flow UI (signup/signin/signout) is built and
-gating app boot. **Step 8 is active**, brought forward out of order:
-`.github/workflows/deploy.yml` builds and publishes `dist/` to Pages on
-every push to main, fixing the unbundled-root-index.html serving bug found
-during Step 4 testing. Awaiting one manual step: switch the Pages source to
-"GitHub Actions" in repo settings. **Step 5a is complete and verified
-end-to-end** with a new user account: profile, company, membership, and
-default time-off types are all created in Supabase on first sign-in.
-Testing surfaced two RLS issues that required emergency policy fixes
-(infinite recursion on `company_members`, an unresolved INSERT rejection
-on `companies`); the `companies` policies were loosened as a pragmatic
-shortcut and are now tracked as **Phase 4 security debt** (see Session
-log and `supabase/policies.sql`). **Step 5b is complete (5b.1, 5b.2,
-5b.3, 5b.4):** `src/data/storage.js` is split into LocalStore +
-RemoteStore + dispatcher, and RemoteStore reads are wired for profile,
-settings, companies, time_off_types, schemaVersion, entries, and pays.
-The entire read path now routes through Supabase when signed in. Writes
-still go through localStorage. A critical seed-suppression patch was
-applied on top of 5b: `loadAll()` no longer treats signed-in users as
-first-run, so Ravi's hardcoded 128-entry + 88-pay seed never loads
-(and, post-5c, never writes) into other users' accounts. **Step 5b is
-now truly complete and safe to build 5c on. Step 5c (write path
-migration) is the next major work.**
+Steps 1-4, 5a, 5b, 5c.1, and 8 are complete (see Session log for the
+full May 18 narrative). Reads route through Supabase when signed in;
+profile and settings writes persist.
+
+Steps 5c.2 (entries write), 5c.3 (pays write), 5c.4 (companies +
+time_off_types write) are next. Then Step 7 (legacy data import -
+one-off script to import Ravi's 2025 + 2026 Excel data into
+Supabase using service_role key). Then Step 9 (polish) and Step 10
+(keep-alive Action).
+
+Write strategy chosen for 5c: Option A (diff-and-write with module-
+level cache of last-loaded entries and pays). Profile and settings
+use upsert by user_id; no diff needed.
 
 ## Primary account
 
@@ -96,6 +84,41 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Steps 5a, 5b, 5c.1 complete + Step 8 forward
+
+Massive session covering:
+- Step 8 (GitHub Actions deploy) moved forward of Step 5 after
+  discovering GitHub Pages was serving unbundled index.html
+- Step 5a (bootstrap): completed with RLS policy debt - companies
+  INSERT/SELECT policies loosened due to unresolved 42501 RLS
+  rejection, company_members policy rewritten to fix infinite
+  recursion. Phase 4 to tighten properly.
+- Step 5b.1-5b.4 (read path): RemoteStore.get implemented for
+  profile, settings, entries, pays, companies, time_off_types,
+  schemaVersion. All reads verified working against Supabase.
+- Seed suppression fix: prevented Ravi's hardcoded 128 entries
+  from being loaded into every signed-in user's in-memory state.
+- Step 5c.1: RemoteStore.set implemented for profile and settings.
+  Verified working - profile name change persists, OT threshold
+  change persists.
+- Decision: raviknight@outlook.com is the primary account;
+  ravismla@gmail.com deprecated.
+
+Verified end-to-end:
+- Signup → email verification → signin flow on production
+- Bootstrap creates the 4 starter row sets on first signin
+- Profile and settings persist to Supabase and survive reload
+
+Known issues to address next session:
+- "Dud app screen on hard refresh" - app shows broken state
+  instead of clean app or login screen. Needs diagnosis.
+- No toast appears on settings save (cosmetic; data does persist)
+- Time-off types and company name edits in Settings appear to
+  save but silently revert on reload (RemoteStore.set is no-op
+  for these keys; UX trap until 5c.4 addresses it)
+- Companies INSERT/SELECT RLS policies loosened - tighten
+  properly in Phase 4 via SECURITY DEFINER bootstrap function
 
 ### May 18, 2026 — Critical fix before 5c: suppress legacy seed in remote mode
 
