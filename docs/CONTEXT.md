@@ -39,12 +39,13 @@ Testing surfaced two RLS issues that required emergency policy fixes
 (infinite recursion on `company_members`, an unresolved INSERT rejection
 on `companies`); the `companies` policies were loosened as a pragmatic
 shortcut and are now tracked as **Phase 4 security debt** (see Session
-log and `supabase/policies.sql`). **Steps 5b.1 and 5b.2 are complete:**
-`src/data/storage.js` is split into LocalStore + RemoteStore +
-dispatcher, and RemoteStore reads are wired for profile, settings,
-companies, time_off_types, and schemaVersion. Reads only; writes still
-go through localStorage. Step 5b.3 (entries read path) is next, then
-5b.4 (pays read), then 5c (write migration).
+log and `supabase/policies.sql`). **Step 5b is complete (5b.1, 5b.2,
+5b.3, 5b.4):** `src/data/storage.js` is split into LocalStore +
+RemoteStore + dispatcher, and RemoteStore reads are wired for profile,
+settings, companies, time_off_types, schemaVersion, entries, and pays.
+The entire read path now routes through Supabase when signed in. Writes
+still go through localStorage. **Step 5c (write path migration) is the
+next major work.**
 
 ## Primary account
 
@@ -91,6 +92,16 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 5b.3 + 5b.4: remote reads complete
+
+- 5b.3: ts:entries reader queries entries table, reshapes to
+  legacy date-keyed object format.
+- 5b.4: ts:pays reader queries pays table, reshapes field names.
+- Read path migration complete. All app reads now route through
+  RemoteStore when signed in.
+- Writes still go via LocalStore (5c is next).
+- Verified end-to-end testing is pending after 5b push deploys.
 
 ### May 18, 2026 — Phase 3 Step 5b.1 + 5b.2: storage refactor + partial reads
 
