@@ -39,8 +39,12 @@ Testing surfaced two RLS issues that required emergency policy fixes
 (infinite recursion on `company_members`, an unresolved INSERT rejection
 on `companies`); the `companies` policies were loosened as a pragmatic
 shortcut and are now tracked as **Phase 4 security debt** (see Session
-log and `supabase/policies.sql`). Step 5b (move entries/pays reads off
-`localStorage` onto Supabase) is the next major work.
+log and `supabase/policies.sql`). **Steps 5b.1 and 5b.2 are complete:**
+`src/data/storage.js` is split into LocalStore + RemoteStore +
+dispatcher, and RemoteStore reads are wired for profile, settings,
+companies, time_off_types, and schemaVersion. Reads only; writes still
+go through localStorage. Step 5b.3 (entries read path) is next, then
+5b.4 (pays read), then 5c (write migration).
 
 ## Primary account
 
@@ -87,6 +91,16 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 5b.1 + 5b.2: storage refactor + partial reads
+
+- 5b.1: src/data/storage.js refactored. LocalStore + RemoteStore +
+  dispatcher. Old window.storage (Anthropic/Claude.ai) path
+  removed.
+- 5b.2: RemoteStore.get implemented for profile, settings,
+  companies, time_off_types, schemaVersion.
+- Entries and pays still pending (5b.3 and 5b.4).
+- Writes still go through localStorage; 5c will migrate writes.
 
 ### May 18, 2026 — Phase 3 Step 5a: bootstrap working (with debt)
 
