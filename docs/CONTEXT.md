@@ -28,8 +28,13 @@ records from `Time_Sheet_2026.xlsx`.
 Steps 1-4 complete: project provisioned, schema + policies deployed,
 `src/data/supabase.js` integrated and connection-verified (entries row
 count 0), and the auth flow UI (signup/signin/signout) is built and
-gating app boot. Next major work: Step 5 (storage layer migration to
-move persistence from `window.storage`/`localStorage` onto Supabase).
+gating app boot. **Step 8 is active**, brought forward out of order:
+`.github/workflows/deploy.yml` builds and publishes `dist/` to Pages on
+every push to main, fixing the unbundled-root-index.html serving bug found
+during Step 4 testing. Awaiting one manual step: switch the Pages source to
+"GitHub Actions" in repo settings. Step 5 (storage layer migration to move
+persistence from `window.storage`/`localStorage` onto Supabase) is still
+the next major work after that.
 
 ## Next likely tasks
 
@@ -68,6 +73,19 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Step 8 brought forward: GitHub Actions deploy
+- Discovered during Step 4 testing that GitHub Pages was serving
+  index.html from project root (with unbundled module imports),
+  not the bundled dist/timesheet.html. Errored with
+  "Failed to resolve module specifier '@supabase/supabase-js'".
+- Fix: moved Step 8 ahead of Step 5. Created
+  .github/workflows/deploy.yml that builds on push and publishes
+  dist/ to Pages.
+- Removed dist/ from git tracking; the workflow rebuilds on every
+  push.
+- Pages source must be switched from "Deploy from a branch" to
+  "GitHub Actions" in the repo settings (manual step for Ravi).
 
 ### May 18, 2026 — Phase 3 Step 4: auth flow UI complete
 - 4a: src/auth/session.js with five auth helpers

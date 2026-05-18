@@ -282,7 +282,13 @@ Tasks:
 his password.
 
 ### STEP 8 — GitHub Actions deploy with secrets
-**Status:** Not started
+**Status:** In progress (workflow created, awaiting Pages settings change in
+GitHub UI). Brought ahead of Step 5: a deployment-path bug found during Step 4
+live-site testing (Pages was serving the unbundled root `index.html`, which
+fails on bare module specifiers like `@supabase/supabase-js`) made automated
+build+deploy of `dist/` the priority. Anon key stays hardcoded in
+`src/data/supabase.js` (public by design, RLS is the guard), so no GitHub
+secrets are needed yet; the env-var injection sub-tasks below remain deferred.
 **Est:** 30 min
 
 Tasks:
