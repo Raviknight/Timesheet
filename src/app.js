@@ -8,7 +8,7 @@
  *   4. Switch to the default landing view
  */
 
-import { Store, STORAGE_MODE } from './data/storage.js';
+import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
@@ -77,7 +77,11 @@ async function loadAll() {
   const entries   = await Store.get(SK.entries, null);
   const pays      = await Store.get(SK.pays, null);
 
-  const isFirstRun = !schema && !entries && !pays;
+  // First-run seed should ONLY happen in local mode (no auth).
+  // Signed-in (remote) users get a clean empty workspace; their data
+  // comes from Supabase or via explicit import.
+  const storageMode = getStorageMode();
+  const isFirstRun = storageMode === 'local' && !schema && !entries && !pays;
 
   state.profile = profile || { ...DEFAULT_PROFILE };
   state.settings = settings || { ...DEFAULT_SETTINGS };
