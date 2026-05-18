@@ -178,6 +178,46 @@ export const RemoteStore = {
         }));
       }
 
+      if (key === 'ts:entries') {
+        const { data, error } = await supabase
+          .from('entries')
+          .select('date, segments, time_off, notes');
+        if (error) {
+          console.error('[storage] entries read failed:', error);
+          return fallback;
+        }
+        if (!data || data.length === 0) return fallback;
+        // Convert array of rows to object keyed by date (legacy format)
+        const out = {};
+        for (const row of data) {
+          out[row.date] = {
+            date: row.date,
+            segments: row.segments || [],
+            timeOff: row.time_off,
+            notes: row.notes,
+          };
+        }
+        return out;
+      }
+
+      if (key === 'ts:pays') {
+        const { data, error } = await supabase
+          .from('pays')
+          .select('date, gross, take_home, hours, company_name');
+        if (error) {
+          console.error('[storage] pays read failed:', error);
+          return fallback;
+        }
+        if (!data || data.length === 0) return fallback;
+        return data.map(row => ({
+          date: row.date,
+          gross: row.gross,
+          takeHome: row.take_home,
+          hours: row.hours,
+          company: row.company_name,
+        }));
+      }
+
       if (key === 'ts:schemaVersion') {
         // No-op in remote mode; schema is enforced server-side
         return null;
