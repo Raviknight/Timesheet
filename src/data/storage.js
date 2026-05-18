@@ -1,33 +1,69 @@
 /**
  * src/data/storage.js
  *
- * Persistence abstraction. The rest of the app calls Store.get / Store.set
- * and doesn't care whether the data lives in:
- *   - Anthropic's `window.storage` (cross-device sync via Claude.ai)
- *   - The browser's `localStorage` (when opened as a plain file)
- *   - Eventually: a remote API for the multi-tenant version
+ * Storage abstraction. Two backends:
  *
- * All values are JSON-serialized before storage and parsed on read.
+ *   - LocalStore: browser localStorage (works without auth)
+ *   - RemoteStore: Supabase tables (requires auth)
+ *
+ * The exported `Store` is a dispatcher that routes calls to the
+ * correct backend based on whether a user is signed in.
+ *
+ * In 5b.1 (this refactor), RemoteStore is a stub. 5b.2 fills it in
+ * for profile/settings reads. 5b.3 adds entries. 5b.4 adds pays.
+ * 5c migrates writes.
  */
 
-const HAS_REMOTE = typeof window !== 'undefined'
-  && window.storage
-  && typeof window.storage.get === 'function';
+import { supabase } from './supabase.js';
 
-export const STORAGE_MODE = HAS_REMOTE ? 'remote' : 'local';
-
-export const Store = {
-  /** Returns `fallback` if the key doesn't exist or any error occurs. */
-  async get(key, fallback) {
-    if (HAS_REMOTE) {
-      try {
-        const r = await window.storage.get(key);
-        if (r && typeof r.value === 'string') return JSON.parse(r.value);
-        return fallback;
-      } catch (e) {
-        return fallback;
+/**
+ * Synchronous-feeling check for whether a user is signed in.
+ * Reads from the session cache that Supabase's client keeps in
+ * localStorage. Used by the Store dispatcher to choose a backend.
+ *
+ * Returns the user id (UUID) if signed in, null otherwise.
+ */
+function getSignedInUserId() {
+  try {
+    // Supabase stores its session in localStorage under a key like
+    // sb-<project-ref>-auth-token. We can read it directly.
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const session = JSON.parse(raw);
+        if (session?.user?.id && session?.access_token) {
+          return session.user.id;
+        }
       }
     }
+  } catch (e) {
+    // Best-effort; ignore parse errors
+  }
+  return null;
+}
+
+export function getStorageMode() {
+  return getSignedInUserId() ? 'remote' : 'local';
+}
+
+// Backward-compat export. Dynamic, not constant.
+export const STORAGE_MODE = new Proxy({}, {
+  get(_, prop) {
+    if (prop === Symbol.toPrimitive || prop === 'toString' || prop === 'valueOf') {
+      return () => getStorageMode();
+    }
+    return getStorageMode();
+  }
+});
+
+// ===========================================================================
+// LocalStore — browser localStorage backed
+// ===========================================================================
+
+export const LocalStore = {
+  async get(key, fallback) {
     try {
       const v = localStorage.getItem(key);
       return v ? JSON.parse(v) : fallback;
@@ -37,18 +73,8 @@ export const Store = {
   },
 
   async set(key, value) {
-    const s = JSON.stringify(value);
-    if (HAS_REMOTE) {
-      try {
-        await window.storage.set(key, s);
-        return true;
-      } catch (e) {
-        console.error('storage.set failed:', key, e);
-        return false;
-      }
-    }
     try {
-      localStorage.setItem(key, s);
+      localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch (e) {
       return false;
@@ -56,9 +82,150 @@ export const Store = {
   },
 
   async del(key) {
-    if (HAS_REMOTE) {
-      try { await window.storage.delete(key); } catch (e) { /* noop */ }
-    }
     try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+  },
+
+  async list(prefix) {
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!prefix || (k && k.startsWith(prefix))) keys.push(k);
+      }
+    } catch (e) { /* noop */ }
+    return keys;
+  },
+};
+
+// ===========================================================================
+// RemoteStore — Supabase backed (stub in 5b.1, filled in 5b.2+)
+// ===========================================================================
+
+export const RemoteStore = {
+  async get(key, fallback) {
+    try {
+      if (key === 'ts:profile') {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .maybeSingle();
+        if (error) {
+          console.error('[storage] profile read failed:', error);
+          return fallback;
+        }
+        if (!data) return fallback;
+        // Map DB shape to app shape (camelCase, expected fields)
+        return {
+          userId: data.user_id,
+          name: data.name,
+          role: data.role,
+          companyId: data.active_company_id,
+        };
+      }
+
+      if (key === 'ts:settings') {
+        const { data, error } = await supabase
+          .from('settings')
+          .select('data')
+          .maybeSingle();
+        if (error) {
+          console.error('[storage] settings read failed:', error);
+          return fallback;
+        }
+        if (!data) return fallback;  // No settings row yet, use defaults
+        return data.data;  // settings.data is JSONB
+      }
+
+      if (key === 'ts:companies') {
+        const { data, error } = await supabase
+          .from('companies')
+          .select('id, name');
+        if (error) {
+          console.error('[storage] companies read failed:', error);
+          return fallback;
+        }
+        if (!data || data.length === 0) return fallback;
+        return data.map(c => ({ id: c.id, name: c.name }));
+      }
+
+      if (key === 'ts:timeOffTypes') {
+        // Get the user's active_company_id first, then fetch types
+        // for that company. (Two-step because we don't have a JOIN
+        // helper in postgrest-js for this case.)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('active_company_id')
+          .maybeSingle();
+        if (!profile?.active_company_id) return fallback;
+
+        const { data, error } = await supabase
+          .from('time_off_types')
+          .select('*')
+          .eq('company_id', profile.active_company_id);
+        if (error) {
+          console.error('[storage] time_off_types read failed:', error);
+          return fallback;
+        }
+        if (!data || data.length === 0) return fallback;
+        return data.map(t => ({
+          code: t.code,
+          label: t.label,
+          poolDays: t.pool_days,
+          hoursPerDay: t.hours_per_day,
+          countsAgainstPool: t.counts_against_pool,
+          sharedPoolWith: t.shared_pool_with,
+          unpaid: t.unpaid,
+        }));
+      }
+
+      if (key === 'ts:schemaVersion') {
+        // No-op in remote mode; schema is enforced server-side
+        return null;
+      }
+
+      // Not yet implemented (entries, pays, etc.)
+      console.warn('[storage] RemoteStore.get not yet implemented for:', key);
+      return fallback;
+    } catch (e) {
+      console.error('[storage] RemoteStore.get unexpected error for ' + key + ':', e);
+      return fallback;
+    }
+  },
+
+  async set(key, value) {
+    // STUB: 5c will implement remote writes.
+    console.warn('[storage] RemoteStore.set not yet implemented for:', key);
+    return false;
+  },
+
+  async del(key) {
+    console.warn('[storage] RemoteStore.del not yet implemented for:', key);
+  },
+
+  async list(prefix) {
+    return [];
+  },
+};
+
+// ===========================================================================
+// Store dispatcher
+// ===========================================================================
+
+function pick() {
+  return getStorageMode() === 'remote' ? RemoteStore : LocalStore;
+}
+
+export const Store = {
+  get(key, fallback) {
+    return pick().get(key, fallback);
+  },
+  set(key, value) {
+    return pick().set(key, value);
+  },
+  del(key) {
+    return pick().del(key);
+  },
+  list(prefix) {
+    return pick().list(prefix);
   },
 };
