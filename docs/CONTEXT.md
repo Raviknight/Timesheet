@@ -25,9 +25,11 @@ records from `Time_Sheet_2026.xlsx`.
 ## What's in flight
 
 **Phase 3 (Supabase migration) is active.** See `docs/PHASE_3_PLAN.md`.
-Steps 1-3 complete: project provisioned, schema + policies deployed,
+Steps 1-4 complete: project provisioned, schema + policies deployed,
 `src/data/supabase.js` integrated and connection-verified (entries row
-count 0). Next: Step 4 (auth flow UI), Step 5 (storage layer migration).
+count 0), and the auth flow UI (signup/signin/signout) is built and
+gating app boot. Next major work: Step 5 (storage layer migration to
+move persistence from `window.storage`/`localStorage` onto Supabase).
 
 ## Next likely tasks
 
@@ -66,6 +68,13 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 4: auth flow UI complete
+- 4a: src/auth/session.js with five auth helpers
+- 4b: src/ui/auth.js login/signup screen + auth view markup + styles
+- 4c: app boot gates on session, sign out button, onAuthChange listener
+- Manual deploy of dist/ to GitHub Pages (Step 8 will automate)
+- Known: bundle is 854 KB unminified; minification deferred to later
 
 ### May 18, 2026 — Phase 3 Step 3: Supabase client integrated
 - Step 3 complete. `src/data/supabase.js` created with project URL and anon
