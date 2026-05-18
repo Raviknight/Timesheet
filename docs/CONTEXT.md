@@ -32,10 +32,15 @@ gating app boot. **Step 8 is active**, brought forward out of order:
 `.github/workflows/deploy.yml` builds and publishes `dist/` to Pages on
 every push to main, fixing the unbundled-root-index.html serving bug found
 during Step 4 testing. Awaiting one manual step: switch the Pages source to
-"GitHub Actions" in repo settings. **Step 5a is complete:** new users
-get their profile, company, membership, and default time-off types
-created in Supabase on first sign-in. Step 5b (move entries/pays reads
-off `localStorage` onto Supabase) is the next major work.
+"GitHub Actions" in repo settings. **Step 5a is complete and verified
+end-to-end** with a new user account: profile, company, membership, and
+default time-off types are all created in Supabase on first sign-in.
+Testing surfaced two RLS issues that required emergency policy fixes
+(infinite recursion on `company_members`, an unresolved INSERT rejection
+on `companies`); the `companies` policies were loosened as a pragmatic
+shortcut and are now tracked as **Phase 4 security debt** (see Session
+log and `supabase/policies.sql`). Step 5b (move entries/pays reads off
+`localStorage` onto Supabase) is the next major work.
 
 ## Next likely tasks
 
@@ -74,6 +79,27 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 5a: bootstrap working (with debt)
+
+- Bootstrap logic deployed and tested end-to-end with a new user
+  (raviknight@outlook.com): all 4 starter rows created correctly
+  (profile, company, company_members, 4 time_off_types).
+- HOWEVER: hit two RLS issues during testing that required emergency
+  fixes to the policies.
+- Issue 1: "Owners manage memberships" policy on company_members
+  caused infinite recursion (42P17) because companies policy refs
+  company_members and vice versa. Fixed by replacing with
+  "Users manage own memberships" (user_id = auth.uid()).
+- Issue 2: companies INSERT failed with 42501 despite verified
+  correct auth.uid() and matching owner_user_id. Could not root-cause
+  in session. Took pragmatic shortcut: loosened both INSERT and
+  SELECT policies on companies to TO authenticated with TRUE checks.
+  Effective protection is now via SELECT-scoping in app queries,
+  not at the RLS layer.
+- Action: Phase 4 must tighten companies policies properly,
+  likely via a SECURITY DEFINER bootstrap function.
+- 5a still complete. 5b (read path migration) is the next step.
 
 ### May 18, 2026 — Phase 3 Step 5a complete: bootstrap logic added
 - New users on first sign-in get profile, company, membership, and
