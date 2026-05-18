@@ -13,6 +13,7 @@
     <div class="row" style="gap:8px">
       <span class="sync-status" id="syncStatus"><span class="sync-dot"></span><span id="syncText">synced</span></span>
       <span class="user-badge"><span id="userName">You</span> · <span class="role" id="userRole">owner</span></span>
+      <button class="btn btn-sm" id="btnSignOut" style="display:none" onclick="handleSignOut()">Sign out</button>
     </div>
   </div>
 
@@ -21,6 +22,36 @@
     <button class="tab" data-view="log">Daily Log</button>
     <button class="tab" data-view="paychecks">Paychecks</button>
     <button class="tab" data-view="settings">Settings</button>
+  </div>
+
+  <!-- AUTH VIEW -->
+  <div class="view" id="view-auth">
+    <div class="auth-container">
+      <h1 class="auth-title">Time Sheet</h1>
+      <p class="auth-subtitle">Personal time tracking and pay-period reporting</p>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-auth-tab="signin">Sign in</button>
+        <button class="auth-tab" data-auth-tab="signup">Sign up</button>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <label for="authEmail">Email</label>
+        <input type="email" id="authEmail" autocomplete="email" required>
+
+        <label for="authPassword">Password</label>
+        <input type="password" id="authPassword" autocomplete="current-password" required minlength="6">
+
+        <button type="submit" id="authSubmit" class="btn btn-primary auth-submit">Sign in</button>
+
+        <div id="authMessage" class="auth-message" style="display:none"></div>
+      </form>
+
+      <p class="auth-help">
+        Sign up requires email verification. After receiving the verification
+        email and clicking the link, return here to sign in.
+      </p>
+    </div>
   </div>
 
   <!-- DASHBOARD VIEW -->

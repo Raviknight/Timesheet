@@ -27,6 +27,9 @@ import { wireSettings, renderSettings } from './ui/settings.js';
 import { initEntryModal } from './modals/entryModal.js';
 import { initPayModal } from './modals/payModal.js';
 
+import { getCurrentSession, onAuthChange, signOut } from './auth/session.js';
+import { renderAuth, wireAuth } from './ui/auth.js';
+
 /** Single in-memory state object. UI modules read from here directly. */
 const state = {
   profile: { ...DEFAULT_PROFILE },
@@ -115,8 +118,24 @@ function rerender() {
 }
 
 async function init() {
+  // Wire the auth view first so it works whether or not we're logged in
+  wireAuth();
+
+  // Check current session
+  const session = await getCurrentSession();
+  if (!session) {
+    showAuthView();
+    return;
+  }
+
+  // Logged in: boot the app
+  await bootApp();
+}
+
+async function bootApp() {
   await loadAll();
   renderTopBar(state.profile);
+  updateSignOutVisibility(true);
 
   // Wire each view
   wireTabs(state);
@@ -132,6 +151,46 @@ async function init() {
   // Land on Pay Period
   switchView('dashboard', state);
 }
+
+function showAuthView() {
+  // Hide all normal views, show the auth view
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('view-auth').classList.add('active');
+  renderAuth();
+  updateSignOutVisibility(false);
+}
+
+function updateSignOutVisibility(loggedIn) {
+  const btn = document.getElementById('btnSignOut');
+  if (btn) btn.style.display = loggedIn ? 'inline-flex' : 'none';
+
+  // Also hide the tabs and topbar user badge when on auth view
+  const tabs = document.querySelector('.tabs');
+  const userBadge = document.querySelector('.user-badge');
+  if (tabs) tabs.style.display = loggedIn ? 'flex' : 'none';
+  if (userBadge) userBadge.style.display = loggedIn ? 'inline-flex' : 'none';
+}
+
+// Global sign-out handler
+window.handleSignOut = async function () {
+  if (!confirm('Sign out?')) return;
+  await signOut();
+  // onAuthChange below will catch the SIGNED_OUT event and re-render
+};
+
+// Listen for auth state changes
+onAuthChange(async (event, session) => {
+  console.log('Auth event:', event);
+  if (event === 'SIGNED_IN' && session) {
+    // User just signed in: boot the app
+    await bootApp();
+  } else if (event === 'SIGNED_OUT') {
+    // User signed out: show the auth view
+    showAuthView();
+  }
+  // TOKEN_REFRESHED and other events: no action needed
+});
 
 init().catch(err => {
   console.error('Failed to initialize:', err);
