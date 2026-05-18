@@ -42,6 +42,14 @@ shortcut and are now tracked as **Phase 4 security debt** (see Session
 log and `supabase/policies.sql`). Step 5b (move entries/pays reads off
 `localStorage` onto Supabase) is the next major work.
 
+## Primary account
+
+**Primary user account: raviknight@outlook.com.** The
+ravismla@gmail.com account, created during Step 4 testing, is
+deprecated and will not be maintained. Do not reference it as the
+primary user anywhere. Step 5.5 (legacy Excel import) will target
+raviknight@outlook.com, not ravismla.
+
 ## Next likely tasks
 
 In rough priority order:
