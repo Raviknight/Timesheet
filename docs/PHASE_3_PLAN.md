@@ -21,7 +21,7 @@ Public SaaS at `https://raviknight.github.io/Timesheet/` where:
 
 | Decision | Choice |
 | --- | --- |
-| Backend | Supabase (Postgres + Auth + Row-Level Security) |
+| Backend | Supabase (Postgres + Auth + RLS). Confirmed over Turso/D1: minimum code, single service, project already provisioned |
 | Auth provider | Supabase Auth, email + password |
 | Signup | Open to anyone |
 | Email verification | Required |
@@ -29,6 +29,8 @@ Public SaaS at `https://raviknight.github.io/Timesheet/` where:
 | Demo data | Fake seed shown to logged-out visitors only |
 | Deploy | GitHub Actions building to GitHub Pages |
 | Real personal data | Imported via one-time JSON import on each device |
+| Inactivity handling | GitHub Action pings Supabase every 3 days (Step 10) |
+| Scope | Personal-use-first: SaaS scaffolding stays in code, demo seed + polish deferred |
 
 ## High-level architecture
 
@@ -181,7 +183,7 @@ create policy "Members access company time-off types" on time_off_types for all
 ## Step-by-step execution plan
 
 ### STEP 1 — Supabase account and project setup
-**Status:** Not started
+**Status:** Complete (project provisioned: kijumyxoiacvqlqqwqon)
 **Est:** 15 min, you do this manually
 **Where:** browser (supabase.com), no code changes
 
@@ -234,7 +236,7 @@ Tasks:
 - [ ] Create `src/ui/auth.js` with login/signup screen
 - [ ] Show auth screen when no session, app when session exists
 - [ ] Email verification flow (Supabase sends the email, we show "Check your email" screen)
-- [ ] Password reset flow
+- [ ] ~~Password reset flow~~ DEFERRED (Supabase's email-based reset link works without custom UI)
 - [ ] Sign out button in top bar
 
 **Deliverable:** Users can sign up, verify email, log in, log out.
@@ -256,7 +258,7 @@ Tasks:
 test accounts; each should see only their own data.
 
 ### STEP 6 — Demo seed for logged-out visitors
-**Status:** Not started
+**Status:** DEFERRED until first non-Ravi user is invited
 **Est:** 1 hour, code + data
 
 Tasks:
@@ -299,16 +301,30 @@ Tasks:
 - [ ] Test full flow with a fresh account in incognito browser
 - [ ] Loading spinners while data loads
 - [ ] Error toasts for network failures
-- [ ] "Forgot password" link in login screen
-- [ ] Email templates customization in Supabase (welcome email, password reset)
+- [ ] ~~"Forgot password" link in login screen~~ DEFERRED (personal-use-first)
+- [ ] ~~Email templates customization in Supabase (welcome email, password reset)~~ DEFERRED (personal-use-first)
 - [ ] Update CLAUDE.md, CONTEXT.md, DECISIONS.md with Phase 3 outcome
 
 **Deliverable:** Ready to share with first beta user.
 
+### STEP 10 — Keep-alive GitHub Action
+**Status:** Not started
+**Est:** 10 min
+
+Purpose: Prevent Supabase free-tier 7-day inactivity pause.
+
+Tasks:
+- [ ] Add `.github/workflows/keep-alive.yml` that pings the Supabase REST endpoint every 3 days using a cron schedule
+- [ ] Add `SUPABASE_ANON_KEY` as a GitHub repo secret
+- [ ] Confirm first scheduled run succeeds in the Actions tab
+
+**Deliverable:** Supabase project stays awake without manual weekly visits.
+
 ## Total estimate
 
-8-12 hours of focused work across ~5-8 sessions. Each step is small enough to
-complete in one session.
+4-6 hours of focused work across 3-4 sessions (personal-use-first scope;
+demo seed and most polish deferred). Each step is small enough to complete
+in one session.
 
 ## Risks and mitigations
 

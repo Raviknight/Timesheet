@@ -24,7 +24,10 @@ records from `Time_Sheet_2026.xlsx`.
 
 ## What's in flight
 
-Nothing in progress right now. The refactor is complete and tested.
+**Phase 3 (Supabase migration) is active.** See `docs/PHASE_3_PLAN.md`.
+Step 1 complete (project provisioned). `supabase/schema.sql` and
+`supabase/policies.sql` are written and ready. Next: run them in the Supabase
+SQL Editor (Step 2), then wire up the client (Step 3).
 
 ## Next likely tasks
 
@@ -63,6 +66,19 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 kickoff: Supabase locked in
+- Confirmed Supabase as backend with keep-alive Action to prevent inactivity
+  pause. Scope reduced to personal-use-first (SaaS scaffolding stays in code,
+  polish steps deferred).
+- Backend chosen over Turso/D1: minimum code, single service, project already
+  provisioned (`kijumyxoiacvqlqqwqon`)
+- Added Step 10 to PHASE_3_PLAN.md: keep-alive GitHub Action pinging Supabase
+  every 3 days against the free-tier 7-day inactivity pause
+- Deferred until first non-Ravi user: demo seed (Step 6), password-reset UI,
+  most Step 9 polish
+- Wrote `supabase/schema.sql` + `supabase/policies.sql`; Step 1 complete, next
+  session runs them (Step 2)
 
 ### May 18, 2026 — Refactor to multi-file structure
 - Split single-file `timesheet.html` into ES modules under `src/`
