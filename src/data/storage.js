@@ -233,9 +233,63 @@ export const RemoteStore = {
   },
 
   async set(key, value) {
-    // STUB: 5c will implement remote writes.
-    console.warn('[storage] RemoteStore.set not yet implemented for:', key);
-    return false;
+    try {
+      if (key === 'ts:profile') {
+        const userId = getSignedInUserId();
+        if (!userId) {
+          console.error('[storage] profile write attempted while signed out');
+          return false;
+        }
+        // value is the app-shape profile object
+        const { error } = await supabase
+          .from('profiles')
+          .upsert({
+            user_id: userId,
+            name: value.name,
+            role: value.role,
+            active_company_id: value.companyId,
+          }, { onConflict: 'user_id' });
+        if (error) {
+          console.error('[storage] profile write failed:', error);
+          return false;
+        }
+        return true;
+      }
+
+      if (key === 'ts:settings') {
+        const userId = getSignedInUserId();
+        if (!userId) {
+          console.error('[storage] settings write attempted while signed out');
+          return false;
+        }
+        const { error } = await supabase
+          .from('settings')
+          .upsert({
+            user_id: userId,
+            data: value,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id' });
+        if (error) {
+          console.error('[storage] settings write failed:', error);
+          return false;
+        }
+        return true;
+      }
+
+      // Skip writes for read-only or bootstrap-managed keys
+      if (key === 'ts:companies' || key === 'ts:timeOffTypes' || key === 'ts:schemaVersion') {
+        // No-op: these are managed by bootstrap, not client writes.
+        // 5c.4 may revisit this if companies/types editing is needed.
+        return true;
+      }
+
+      // Entries and pays still pending (5c.2 and 5c.3)
+      console.warn('[storage] RemoteStore.set not yet implemented for:', key);
+      return false;
+    } catch (e) {
+      console.error('[storage] RemoteStore.set unexpected error for ' + key + ':', e);
+      return false;
+    }
   },
 
   async del(key) {
