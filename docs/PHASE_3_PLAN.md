@@ -201,7 +201,7 @@ create policy "Members access company time-off types" on time_off_types for all
 **Deliverable:** Project URL + anon key, ready to paste into config.
 
 ### STEP 2 — Database schema deployment
-**Status:** Not started
+**Status:** Complete (schema + policies deployed; entries table verified to exist)
 **Est:** 10 min, you run a SQL script
 
 1. In Supabase dashboard, click **SQL Editor** in left sidebar
@@ -214,17 +214,17 @@ create policy "Members access company time-off types" on time_off_types for all
 **Deliverable:** All tables and policies created in Supabase.
 
 ### STEP 3 — Frontend Supabase client integration
-**Status:** Not started
+**Status:** Complete (client created, connection verified via temporary test)
 **Est:** 1-2 hours, code changes
 
 We add the Supabase JS library and create a new storage backend.
 
 Tasks:
-- [ ] Add `@supabase/supabase-js` to package.json
-- [ ] Create `src/data/supabase.js` with the client setup
-- [ ] Create `src/data/remote.js` with API functions: `getEntries`, `saveEntry`, `deleteEntry`, etc.
-- [ ] Add config via env vars + GitHub Secrets (so anon key isn't hardcoded)
-- [ ] Build script reads env vars and injects them at build time
+- [x] Add `@supabase/supabase-js` to package.json
+- [x] Create `src/data/supabase.js` with the client setup
+- [ ] ~~Create `src/data/remote.js` with API functions: `getEntries`, `saveEntry`, `deleteEntry`, etc.~~ DEFERRED to Step 5 (storage layer migration)
+- [ ] ~~Add config via env vars + GitHub Secrets (so anon key isn't hardcoded)~~ DEFERRED to Step 8 (anon key currently hardcoded in `src/data/supabase.js`; public by design, RLS is the guard)
+- [ ] ~~Build script reads env vars and injects them at build time~~ DEFERRED to Step 8
 
 **Deliverable:** Client connected, can read from Supabase in dev console.
 

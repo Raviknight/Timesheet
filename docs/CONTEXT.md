@@ -25,9 +25,9 @@ records from `Time_Sheet_2026.xlsx`.
 ## What's in flight
 
 **Phase 3 (Supabase migration) is active.** See `docs/PHASE_3_PLAN.md`.
-Step 1 complete (project provisioned). `supabase/schema.sql` and
-`supabase/policies.sql` are written and ready. Next: run them in the Supabase
-SQL Editor (Step 2), then wire up the client (Step 3).
+Steps 1-3 complete: project provisioned, schema + policies deployed,
+`src/data/supabase.js` integrated and connection-verified (entries row
+count 0). Next: Step 4 (auth flow UI), Step 5 (storage layer migration).
 
 ## Next likely tasks
 
@@ -66,6 +66,11 @@ In rough priority order:
   `app.js` is fine for this size.
 
 ## Session log
+
+### May 18, 2026 — Phase 3 Step 3: Supabase client integrated
+- Step 3 complete. `src/data/supabase.js` created with project URL and anon
+  key, connection verified by querying entries table (row count 0). Temp
+  test removed.
 
 ### May 18, 2026 — Phase 3 kickoff: Supabase locked in
 - Confirmed Supabase as backend with keep-alive Action to prevent inactivity
