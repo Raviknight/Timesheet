@@ -8,6 +8,8 @@
  *   4. Switch to the default landing view
  */
 
+console.log('app.js: module loading');
+
 import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
@@ -30,6 +32,10 @@ import { initPayModal } from './modals/payModal.js';
 
 import { getCurrentSession, onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
+
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('UNHANDLED REJECTION:', e.reason);
+});
 
 /** Single in-memory state object. UI modules read from here directly. */
 const state = {
@@ -123,6 +129,7 @@ function rerender() {
 }
 
 async function init() {
+  console.log('init: entered');
   // Wire the auth view first so it works whether or not we're logged in
   wireAuth();
 
@@ -140,15 +147,14 @@ async function init() {
 
 async function bootApp() {
   console.log('bootApp called');
-  // Get the current session so we have user info
+  console.log('bootApp: step 1 - getCurrentSession');
   const session = await getCurrentSession();
   if (!session) {
+    console.log('bootApp: no session, redirecting to auth');
     showAuthView();
     return;
   }
-
-  // Ensure user is bootstrapped in Supabase (creates profile/company
-  // on first sign-in, no-op otherwise)
+  console.log('bootApp: step 2 - ensureBootstrapped');
   try {
     const profile = await ensureBootstrapped(session.user.id, session.user.email);
     console.log('User profile ready:', profile);
@@ -157,25 +163,21 @@ async function bootApp() {
     toast('Failed to set up account: ' + e.message);
     return;
   }
-
-  // Continue with existing localStorage-based loading for now
-  // (5b will replace this with Supabase reads)
+  console.log('bootApp: step 3 - loadAll');
   await loadAll();
+  console.log('bootApp: step 4 - renderTopBar');
   renderTopBar(state.profile);
   updateSignOutVisibility(true);
-
-  // Wire each view
+  console.log('bootApp: step 5 - wire views');
   wireTabs(state);
   wireDashboard(state);
   wireLog(state);
   wirePaychecks(state);
   wireSettings(state, { saveAll });
-
-  // Wire modals
+  console.log('bootApp: step 6 - wire modals');
   initEntryModal(state, rerender);
   initPayModal(state, rerender);
-
-  // Land on Pay Period
+  console.log('bootApp: step 7 - switchView');
   switchView('dashboard', state);
   console.log('bootApp: complete, currentView=', state.ui.currentView);
 }
