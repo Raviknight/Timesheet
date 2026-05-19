@@ -112,3 +112,41 @@ is stable.
 User's employer (Ferry Machines) pays bi-weekly starting Monday.
 Current anchor in settings: 2025-12-29 (a Monday). This is the
 test case for the migration.
+
+---
+
+## Smart entry defaults (deferred — post Phase 3)
+
+When a user adds a new entry, the modal should pre-fill sensible 
+defaults instead of an empty form.
+
+**Defaults:**
+- One segment pre-filled with start/end from a new "Standard Day" 
+  setting (e.g. 8:00 AM to 4:30 PM).
+- One break pre-filled from "Standard Break" setting (e.g. 12:00 PM 
+  to 12:30 PM).
+- Time-off entries (Holiday, PTO, Sick) auto-fill the full standard 
+  day; user can edit start/end for half-days.
+
+**New Settings section: "Standard Day"**
+- start time
+- end time
+- break start
+- break end
+
+**Future enhancement: scheduled vs actual times**
+Split segment into scheduled (from standard day) and actual (what 
+user logs). Diff = lateness / early-out, shown as a badge per day. 
+Useful for personal tracking. No effect on paycheck math.
+
+**Implementation touchpoints:**
+1. Schema: add `standardDay` to settings JSON.
+2. UI: new section in Settings page.
+3. Entry modal: detect new-vs-edit, pre-fill accordingly.
+4. Entry modal: detect time-off-type selection and apply full-day defaults.
+5. (Future) data model split for scheduled vs actual times.
+
+**Risk:** schema change touches DEFAULT_SETTINGS and existing-user 
+migration logic. Plan a small migration step.
+
+---

@@ -49,21 +49,58 @@ const state = {
 };
 
 async function saveAll() {
-  setSync('syncing', 'saving…');
+  setSync('syncing', 'saving...');
+  const writes = [
+    { key: SK.profile,    value: state.profile },
+    { key: SK.settings,   value: state.settings },
+    { key: SK.timeOff,    value: state.timeOffTypes },
+    { key: SK.companies,  value: state.companies },
+    { key: SK.entries,    value: state.entries },
+    { key: SK.pays,       value: state.pays },
+    { key: SK.schema,     value: SCHEMA_VERSION },
+  ];
+
+  const results = await Promise.all(
+    writes.map(async w => {
+      try {
+        const ok = await Store.set(w.key, w.value);
+        return { key: w.key, ok };
+      } catch (e) {
+        console.error(`Store.set threw for ${w.key}:`, e);
+        return { key: w.key, ok: false };
+      }
+    })
+  );
+
+  const failed = results.filter(r => r.ok === false).map(r => r.key);
+
+  if (failed.length === 0) {
+    setSyncIdle();
+    return;
+  }
+
+  // One or more writes failed. Show a toast and reload from store
+  // so the UI reflects what is actually persisted.
+  setSync('error', 'save error');
+  const friendlyNames = failed.map(k => {
+    if (k === SK.profile) return 'profile';
+    if (k === SK.settings) return 'settings';
+    if (k === SK.timeOff) return 'time off types';
+    if (k === SK.companies) return 'companies';
+    if (k === SK.entries) return 'entries';
+    if (k === SK.pays) return 'paychecks';
+    if (k === SK.schema) return 'schema';
+    return k;
+  });
+  toast('Save failed for: ' + friendlyNames.join(', ') + '. Reloading from server.');
+
   try {
-    await Promise.all([
-      Store.set(SK.profile, state.profile),
-      Store.set(SK.settings, state.settings),
-      Store.set(SK.timeOff, state.timeOffTypes),
-      Store.set(SK.companies, state.companies),
-      Store.set(SK.entries, state.entries),
-      Store.set(SK.pays, state.pays),
-      Store.set(SK.schema, SCHEMA_VERSION),
-    ]);
+    await loadAll();
+    rerender();
     setSyncIdle();
   } catch (e) {
-    setSync('error', 'save error');
-    console.error(e);
+    console.error('Revert reload failed:', e);
+    setSync('error', 'reload failed');
   }
 }
 
