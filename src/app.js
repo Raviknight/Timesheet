@@ -30,7 +30,7 @@ import { wireSettings, renderSettings } from './ui/settings.js';
 import { initEntryModal } from './modals/entryModal.js';
 import { initPayModal } from './modals/payModal.js';
 
-import { getCurrentSession, onAuthChange, signOut } from './auth/session.js';
+import { onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
 
 window.addEventListener('unhandledrejection', (e) => {
@@ -130,30 +130,15 @@ function rerender() {
 
 async function init() {
   console.log('init: entered');
-  // Wire the auth view first so it works whether or not we're logged in
   wireAuth();
-
-  // Check current session
-  const session = await getCurrentSession();
-  console.log('init: session?', !!session);
-  if (!session) {
-    showAuthView();
-    return;
-  }
-
-  // Logged in: boot the app
-  await bootApp();
+  // The onAuthChange listener below handles routing on both
+  // fresh load and after sign-in/sign-out. No need to call
+  // getCurrentSession here — Supabase will fire INITIAL_SESSION
+  // when ready.
 }
 
-async function bootApp() {
+async function bootApp(session) {
   console.log('bootApp called');
-  console.log('bootApp: step 1 - getCurrentSession');
-  const session = await getCurrentSession();
-  if (!session) {
-    console.log('bootApp: no session, redirecting to auth');
-    showAuthView();
-    return;
-  }
   console.log('bootApp: step 2 - ensureBootstrapped');
   try {
     const profile = await ensureBootstrapped(session.user.id, session.user.email);
@@ -210,17 +195,20 @@ window.handleSignOut = async function () {
   // onAuthChange below will catch the SIGNED_OUT event and re-render
 };
 
-// Listen for auth state changes
+// Guard against double-boot if INITIAL_SESSION and a later
+// SIGNED_IN both fire (rare, but possible)
+let appBooted = false;
+
 onAuthChange(async (event, session) => {
   console.log('Auth event:', event, 'session?', !!session);
-  if (event === 'SIGNED_IN' && session) {
-    // User just signed in: boot the app
-    await bootApp();
-  } else if (event === 'SIGNED_OUT') {
-    // User signed out: show the auth view
+  if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session) {
+    if (appBooted) return;
+    appBooted = true;
+    await bootApp(session);
+  } else if ((event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') && !session) {
+    appBooted = false;
     showAuthView();
   }
-  // TOKEN_REFRESHED and other events: no action needed
 });
 
 init().catch(err => {
