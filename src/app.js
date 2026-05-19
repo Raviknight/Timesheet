@@ -204,7 +204,9 @@ onAuthChange(async (event, session) => {
   if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session) {
     if (appBooted) return;
     appBooted = true;
-    await bootApp(session);
+    // Defer one frame to let Supabase finish wiring its DB client
+    // with the auth token before we make queries.
+    requestAnimationFrame(() => { bootApp(session); });
   } else if ((event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') && !session) {
     appBooted = false;
     showAuthView();
