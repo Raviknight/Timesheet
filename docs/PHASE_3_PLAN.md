@@ -229,17 +229,28 @@ Tasks:
 **Deliverable:** Client connected, can read from Supabase in dev console.
 
 ### STEP 4 — Auth flow UI
-**Status:** Not started
+**Status:** Complete (shipped weeks ago in commit 11c2129; status line
+was never updated at the time).
 **Est:** 2-3 hours, code changes
 
 Tasks:
-- [ ] Create `src/ui/auth.js` with login/signup screen
-- [ ] Show auth screen when no session, app when session exists
-- [ ] Email verification flow (Supabase sends the email, we show "Check your email" screen)
+- [x] Create `src/ui/auth.js` with login/signup screen
+- [x] Show auth screen when no session, app when session exists
+- [x] Email verification flow (Supabase sends the email, we show "Check your email" screen)
 - [ ] ~~Password reset flow~~ DEFERRED (Supabase's email-based reset link works without custom UI)
-- [ ] Sign out button in top bar
+- [x] Sign out button in top bar
 
 **Deliverable:** Users can sign up, verify email, log in, log out.
+
+**Post-5b auth fix — dud-screen-on-refresh / auth callback deadlock:**
+After 5b, a hard refresh sometimes left the app on a broken screen
+instead of the app or the login view. Root cause: supabase-js holds
+an auth lock during onAuthStateChange callbacks; awaiting any
+Supabase call inside the callback deadlocks because the awaited call
+needs the same lock. Fixed by routing boot through onAuthStateChange
+(commit 87cd0f6) and deferring bootApp by one frame so it runs
+outside the locked callback (commit 3453c35); diagnostic logs cleaned
+up afterward (commit 1ea8e47).
 
 ### STEP 5 — Storage layer migration
 **Status:** In progress. Substeps:
@@ -255,9 +266,15 @@ Tasks:
   legacy 128-entry/88-pay seed never loads for signed-in users.
 - **5c.1 Complete** — write path (profile + settings): RemoteStore.set
   upserts profile and settings by user_id. Verified persisting.
-- **5c.2 / 5c.3 / 5c.4 Not started** — entries write, pays write,
-  companies + time_off_types write. Diff-and-write (Option A) with a
-  module-level cache of last-loaded entries/pays.
+- **5c.2 Complete** — entries write path, shipped in four parts:
+  - Part 1: Entries write to Supabase with diff-tracking (commit 31f6eae)
+  - Part 2: Toast + revert on save failure in saveAll (commit 0c34a80)
+  - Part 3: All modal/settings save paths routed through saveKey (commit 34e0570)
+  - Part 4: Mid-session token loss detection, route to auth instead
+    of silent local fallback (commit 13694dd)
+- **5c.3 / 5c.4 Not started** — pays write, companies +
+  time_off_types write. Diff-and-write (Option A) with a
+  module-level cache of last-loaded pays.
 **Est:** 2-3 hours, code changes
 
 Replace `src/data/storage.js` (currently calls `window.storage`/localStorage)
@@ -279,9 +296,14 @@ test accounts; each should see only their own data.
 **Est:** 1 hour, one-off script
 **Where:** local script, not shipped in the app bundle
 
-New sub-step inserted between 5c and Step 7. Step 7 covers the
-in-app JSON import UI; this step is the bulk backfill of Ravi's
-historical data that predates the app.
+One-off script (or use the in-app JSON importer at Settings → Data →
+Import JSON) to bulk-load Ravi's 2025 Excel data plus the 128 entries
+from `Time_Sheet_2026.xlsx` into the raviknight@outlook.com Supabase
+workspace. Decide on script-vs-importer when approaching this step.
+This supersedes the old Step 7 (which assumed a separate in-app
+import step); the JSON importer already exists, so the only open
+question is bulk script vs. manual importer for the historical
+backfill.
 
 Tasks:
 - [ ] One-off Node script that reads `Time_Sheet_2026.xlsx` (and the
@@ -310,17 +332,11 @@ Tasks:
 **Deliverable:** Logged-out URL shows a demo, not Ravi's real data.
 
 ### STEP 7 — Migrate Ravi's real data
-**Status:** Not started
-**Est:** 30 min
-
-Tasks:
-- [ ] Export real data from current localStorage version
-- [ ] Sign up for `ravi@...` account in production Supabase
-- [ ] One-time import script via Settings → Import JSON (this UI already exists)
-- [ ] Verify all 128 entries and 88 pays loaded correctly
-
-**Deliverable:** Ravi's data lives in his personal Supabase account, behind
-his password.
+**Status:** Superseded by Step 5.5. The in-app JSON importer already
+exists (Settings → Data → Import JSON), so there is no separate
+import-UI step to build. The historical backfill of Ravi's 2025 +
+2026 data is now tracked solely under Step 5.5; do not action this
+step.
 
 ### STEP 8 — GitHub Actions deploy with secrets
 **Status:** Complete. Brought ahead of Step 5: a deployment-path bug found

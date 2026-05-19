@@ -388,7 +388,6 @@ export const RemoteStore = {
           snapshot: JSON.parse(JSON.stringify(newSnap)),
           companyId,
         };
-        console.log(`[storage] entries synced: ${toUpsert.length} upserted, ${toDelete.length} deleted`);
         return true;
       }
 
