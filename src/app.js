@@ -31,6 +31,12 @@ import { initPayModal } from './modals/payModal.js';
 import { onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
 
+// Captured at boot. True if the app started with a Supabase
+// session. Used to detect mid-session token loss (e.g., user
+// signed out in another tab) and avoid silent fallback to
+// local storage.
+let bootedRemote = false;
+
 /** Single in-memory state object. UI modules read from here directly. */
 const state = {
   profile: { ...DEFAULT_PROFILE },
@@ -49,6 +55,11 @@ const state = {
 };
 
 async function saveAll() {
+  if (bootedRemote && getStorageMode() === 'local') {
+    await handleSessionExpired();
+    return;
+  }
+
   setSync('syncing', 'saving...');
   const writes = [
     { key: SK.profile,    value: state.profile },
@@ -113,6 +124,15 @@ async function saveAll() {
  * the return and skip their own success toast / close logic if false.
  */
 async function saveKey(key, value, friendlyName) {
+  // Detect mid-session token loss before writing. If the app
+  // booted remote but storage now reports local, the Supabase
+  // session was cleared (e.g., signed out in another tab).
+  // Do not silently fall back to localStorage.
+  if (bootedRemote && getStorageMode() === 'local') {
+    await handleSessionExpired();
+    return false;
+  }
+
   const ok = await Store.set(key, value);
   if (!ok) {
     toast(`${friendlyName} save failed. Reloading from server.`);
@@ -130,6 +150,27 @@ async function saveKey(key, value, friendlyName) {
 }
 
 export { saveKey };
+
+/**
+ * Called when we detect that the user's Supabase session was lost
+ * mid-session (e.g. signed out in another tab). Shows a toast,
+ * signs out cleanly to clear any zombie auth state, and routes
+ * to the auth view. The pending save that triggered this is
+ * discarded.
+ */
+async function handleSessionExpired() {
+  toast('Your session ended. Please sign in again.');
+  try {
+    await signOut();
+  } catch (e) {
+    console.error('signOut during session-expired handler failed:', e);
+  }
+  // The onAuthChange listener will fire SIGNED_OUT and call
+  // showAuthView, which resets bootedRemote and clears the UI.
+  // But call it directly too so the UI updates immediately even
+  // if the listener is delayed.
+  showAuthView();
+}
 
 async function loadAll() {
   setSync('syncing', 'loading…');
@@ -195,6 +236,7 @@ async function init() {
 }
 
 async function bootApp(session) {
+  bootedRemote = true;
   try {
     await ensureBootstrapped(session.user.id, session.user.email);
   } catch (e) {
@@ -216,6 +258,7 @@ async function bootApp(session) {
 }
 
 function showAuthView() {
+  bootedRemote = false;
   // Hide all normal views, show the auth view
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
