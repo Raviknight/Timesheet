@@ -239,21 +239,38 @@ export const RemoteStore = {
       }
 
       if (key === 'ts:pays') {
+        // Need company_id alongside company_name so the diff can match
+        // existing rows on upsert.
         const { data, error } = await supabase
           .from('pays')
-          .select('date, gross, take_home, hours, company_name');
+          .select('company_id, date, gross, take_home, hours, company_name');
         if (error) {
           console.error('[storage] pays read failed:', error);
           return fallback;
         }
-        if (!data || data.length === 0) return fallback;
-        return data.map(row => ({
-          date: row.date,
-          gross: row.gross,
-          takeHome: row.take_home,
-          hours: row.hours,
-          company: row.company_name,
-        }));
+
+        const out = [];
+        if (data) {
+          for (const row of data) {
+            out.push({
+              date: row.date,
+              company: row.company_name,
+              gross: row.gross,
+              takeHome: row.take_home,
+              hours: row.hours,
+              // Internal-only fields, used by the diff. UI ignores them.
+              _companyId: row.company_id,
+            });
+          }
+        }
+
+        // Cache deep snapshot for diff-tracking on write
+        writeCache['ts:pays'] = {
+          snapshot: JSON.parse(JSON.stringify(out)),
+        };
+
+        if (data && data.length === 0) return fallback;
+        return out;
       }
 
       if (key === 'ts:schemaVersion') {
@@ -391,6 +408,193 @@ export const RemoteStore = {
         return true;
       }
 
+      if (key === 'ts:pays') {
+        const userId = getSignedInUserId();
+        if (!userId) {
+          console.error('[storage] pays write attempted while signed out');
+          return false;
+        }
+        const cache = writeCache['ts:pays'];
+        if (!cache) {
+          console.error('[storage] pays write attempted without a load-time cache; refusing to write');
+          return false;
+        }
+
+        // Need active_company_id for the "— Other —" fallback case.
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('active_company_id')
+          .maybeSingle();
+        const activeCompanyId = profile?.active_company_id || null;
+
+        // Build a name → id lookup from companies loaded at boot.
+        // We need to query companies fresh here since storage.js does
+        // not hold a reference to app state.companies.
+        const { data: companiesRows, error: companiesErr } = await supabase
+          .from('companies')
+          .select('id, name');
+        if (companiesErr) {
+          console.error('[storage] pays write: companies lookup failed:', companiesErr);
+          return false;
+        }
+        const nameToId = {};
+        for (const c of (companiesRows || [])) {
+          nameToId[c.name] = c.id;
+        }
+
+        // Resolve each new pay's company_id. If company is '' or
+        // unrecognized, fall back to activeCompanyId.
+        function resolveCompanyId(payCompanyName) {
+          if (payCompanyName && nameToId[payCompanyName]) {
+            return nameToId[payCompanyName];
+          }
+          return activeCompanyId;
+        }
+
+        const newSnap = value || [];
+        const oldSnap = cache.snapshot || [];
+
+        // Build keyed lookups for diff. Composite key: companyId|date
+        // (mirrors the unique constraint).
+        function keyOf(pay, resolvedCompanyId) {
+          return `${resolvedCompanyId || 'NULL'}|${pay.date}`;
+        }
+
+        // Index old snap by its stored _companyId|date
+        const oldByKey = {};
+        for (const p of oldSnap) {
+          oldByKey[keyOf(p, p._companyId)] = p;
+        }
+
+        // Index new pays by their resolved companyId|date
+        const newByKey = {};
+        for (const p of newSnap) {
+          const cid = resolveCompanyId(p.company);
+          newByKey[keyOf(p, cid)] = { pay: p, companyId: cid };
+        }
+
+        const toInsert = [];
+        const toUpdate = [];
+        const toDelete = [];
+
+        for (const k of Object.keys(newByKey)) {
+          const { pay, companyId } = newByKey[k];
+          if (!companyId) {
+            console.error('[storage] pays write: cannot resolve company_id for pay', pay);
+            return false;
+          }
+          const oldRow = oldByKey[k];
+          if (!oldRow) {
+            // New row
+            toInsert.push({
+              user_id: userId,
+              company_id: companyId,
+              company_name: pay.company || (companiesRows.find(c => c.id === companyId)?.name || ''),
+              date: pay.date,
+              gross: pay.gross || 0,
+              take_home: pay.takeHome || 0,
+              hours: pay.hours || 0,
+            });
+          } else {
+            // Existing row — check if any tracked field changed.
+            const changed =
+              (oldRow.gross || 0)    !== (pay.gross || 0) ||
+              (oldRow.takeHome || 0) !== (pay.takeHome || 0) ||
+              (oldRow.hours || 0)    !== (pay.hours || 0);
+            if (changed) {
+              toUpdate.push({
+                user_id: userId,
+                company_id: companyId,
+                date: pay.date,
+                gross: pay.gross || 0,
+                take_home: pay.takeHome || 0,
+                hours: pay.hours || 0,
+                // NOTE: company_name intentionally omitted so a renamed
+                // company does not retroactively rewrite history.
+              });
+            }
+          }
+        }
+
+        for (const k of Object.keys(oldByKey)) {
+          if (!newByKey[k]) {
+            const oldRow = oldByKey[k];
+            toDelete.push({
+              company_id: oldRow._companyId,
+              date: oldRow.date,
+            });
+          }
+        }
+
+        if (toInsert.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
+          return true;
+        }
+
+        // Inserts: pure insert (company_name set).
+        if (toInsert.length > 0) {
+          const { error: insertErr } = await supabase
+            .from('pays')
+            .insert(toInsert);
+          if (insertErr) {
+            console.error('[storage] pays insert failed:', insertErr);
+            return false;
+          }
+        }
+
+        // Updates: match on (user_id, company_id, date), update the
+        // mutable fields only. company_name not touched.
+        for (const u of toUpdate) {
+          const { error: updateErr } = await supabase
+            .from('pays')
+            .update({
+              gross: u.gross,
+              take_home: u.take_home,
+              hours: u.hours,
+            })
+            .eq('user_id', u.user_id)
+            .eq('company_id', u.company_id)
+            .eq('date', u.date);
+          if (updateErr) {
+            console.error('[storage] pays update failed:', updateErr);
+            return false;
+          }
+        }
+
+        // Deletes
+        for (const d of toDelete) {
+          const { error: deleteErr } = await supabase
+            .from('pays')
+            .delete()
+            .eq('user_id', userId)
+            .eq('company_id', d.company_id)
+            .eq('date', d.date);
+          if (deleteErr) {
+            console.error('[storage] pays delete failed:', deleteErr);
+            return false;
+          }
+        }
+
+        // Refresh cache: re-fetch from server so _companyId tags are
+        // accurate for the next diff. Simpler than trying to reconstruct
+        // the snapshot in-memory with all the new ids.
+        const { data: refreshed } = await supabase
+          .from('pays')
+          .select('company_id, date, gross, take_home, hours, company_name');
+        const refreshedShape = (refreshed || []).map(row => ({
+          date: row.date,
+          company: row.company_name,
+          gross: row.gross,
+          takeHome: row.take_home,
+          hours: row.hours,
+          _companyId: row.company_id,
+        }));
+        writeCache['ts:pays'] = {
+          snapshot: JSON.parse(JSON.stringify(refreshedShape)),
+        };
+
+        return true;
+      }
+
       // Skip writes for read-only or bootstrap-managed keys
       if (key === 'ts:companies' || key === 'ts:timeOffTypes' || key === 'ts:schemaVersion') {
         // No-op: these are managed by bootstrap, not client writes.
@@ -398,7 +602,7 @@ export const RemoteStore = {
         return true;
       }
 
-      // Pays still pending (5c.3)
+      // Any other key has no remote write path yet.
       console.warn('[storage] RemoteStore.set not yet implemented for:', key);
       return false;
     } catch (e) {
