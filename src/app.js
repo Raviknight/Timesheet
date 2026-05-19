@@ -138,6 +138,7 @@ async function init() {
 }
 
 async function bootApp() {
+  console.log('bootApp called');
   // Get the current session so we have user info
   const session = await getCurrentSession();
   if (!session) {
@@ -206,7 +207,7 @@ window.handleSignOut = async function () {
 
 // Listen for auth state changes
 onAuthChange(async (event, session) => {
-  console.log('Auth event:', event);
+  console.log('Auth event:', event, 'session?', !!session);
   if (event === 'SIGNED_IN' && session) {
     // User just signed in: boot the app
     await bootApp();
