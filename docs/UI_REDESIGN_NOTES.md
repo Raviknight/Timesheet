@@ -115,7 +115,7 @@ test case for the migration.
 
 ---
 
-## Smart entry defaults (deferred — post Phase 3)
+## Smart entry defaults (deferred, post Phase 3)
 
 When a user adds a new entry, the modal should pre-fill sensible 
 defaults instead of an empty form.
