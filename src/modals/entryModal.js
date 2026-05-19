@@ -10,8 +10,8 @@
  * only gets committed to state.entries on Save.
  */
 
-import { Store } from '../data/storage.js';
 import { SK } from '../data/schema.js';
+import { saveKey } from '../app.js';
 import { computeHours, computeSegmentHours, entrySegments, fmtDate } from '../core/time.js';
 import { setSyncIdle } from '../ui/topbar.js';
 import { toast } from '../ui/toast.js';
@@ -174,7 +174,7 @@ async function saveEntry() {
     delete stateRef.entries[editingDate];
   }
   stateRef.entries[date] = entry;
-  await Store.set(SK.entries, stateRef.entries);
+  if (!await saveKey(SK.entries, stateRef.entries, 'Entry')) return;
   setSyncIdle();
   closeEntryModal();
   rerender();
@@ -185,7 +185,7 @@ async function deleteEntry() {
   if (!editingDate) return;
   if (!confirm('Delete this entry?')) return;
   delete stateRef.entries[editingDate];
-  await Store.set(SK.entries, stateRef.entries);
+  if (!await saveKey(SK.entries, stateRef.entries, 'Entry')) return;
   setSyncIdle();
   closeEntryModal();
   rerender();

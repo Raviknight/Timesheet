@@ -104,6 +104,33 @@ async function saveAll() {
   }
 }
 
+/**
+ * Save one state key to the store. If the write fails, show a toast
+ * naming what failed, reload from the store, and re-render so the UI
+ * matches what is actually persisted.
+ *
+ * Returns true on success, false on failure. Callers should check
+ * the return and skip their own success toast / close logic if false.
+ */
+async function saveKey(key, value, friendlyName) {
+  const ok = await Store.set(key, value);
+  if (!ok) {
+    toast(`${friendlyName} save failed. Reloading from server.`);
+    try {
+      await loadAll();
+      rerender();
+      setSyncIdle();
+    } catch (e) {
+      console.error('Revert reload failed:', e);
+      setSync('error', 'reload failed');
+    }
+    return false;
+  }
+  return true;
+}
+
+export { saveKey };
+
 async function loadAll() {
   setSync('syncing', 'loading…');
   const schema    = await Store.get(SK.schema, null);

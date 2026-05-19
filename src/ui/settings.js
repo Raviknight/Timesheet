@@ -10,6 +10,7 @@
  */
 
 import { Store } from '../data/storage.js';
+import { saveKey } from '../app.js';
 import {
   SK, SCHEMA_VERSION, DEFAULT_PROFILE, DEFAULT_SETTINGS,
   DEFAULT_TIME_OFF_TYPES, migrateEntries,
@@ -138,14 +139,14 @@ function renderTOTypes(state) {
       if (f === 'poolDays' || f === 'hoursPerDay') v = +v;
       else if (f === 'countsAgainstPool') v = v === 'true';
       state.timeOffTypes[i][f] = v;
-      Store.set(SK.timeOff, state.timeOffTypes).then(() => setSyncIdle());
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
     };
   });
   list.querySelectorAll('button[data-del]').forEach(btn => {
     btn.onclick = () => {
       if (!confirm(`Remove ${state.timeOffTypes[+btn.dataset.del].label}?`)) return;
       state.timeOffTypes.splice(+btn.dataset.del, 1);
-      Store.set(SK.timeOff, state.timeOffTypes).then(() => setSyncIdle());
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
       renderTOTypes(state);
     };
   });
@@ -167,7 +168,7 @@ function renderCompaniesList(state) {
       const idx = +b.dataset.del;
       if (!confirm(`Remove ${state.companies[idx].name}?`)) return;
       state.companies.splice(idx, 1);
-      Store.set(SK.companies, state.companies).then(() => setSyncIdle());
+      saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
       renderCompaniesList(state);
     };
   });
@@ -188,7 +189,7 @@ export function wireSettings(state, { saveAll }) {
     state.settings.cycleDays = +document.getElementById('setCycleDays').value || 14;
     state.settings.otThreshold = parseFloat(document.getElementById('setOTThreshold').value) || 40;
     state.settings.breakMinutes = parseFloat(document.getElementById('setBreakMin').value) || 0;
-    await Store.set(SK.settings, state.settings);
+    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
     setSyncIdle();
     toast('Pay-period settings saved');
   };
@@ -196,7 +197,7 @@ export function wireSettings(state, { saveAll }) {
   document.getElementById('btnSaveProfile').onclick = async () => {
     state.profile.name = document.getElementById('setName').value.trim() || 'You';
     state.profile.role = document.getElementById('setRole').value;
-    await Store.set(SK.profile, state.profile);
+    if (!await saveKey(SK.profile, state.profile, 'Profile')) return;
     setSyncIdle();
     renderTopBar(state.profile);
     toast('Profile saved');
@@ -207,7 +208,7 @@ export function wireSettings(state, { saveAll }) {
       code: 'NEW', label: 'New Type',
       poolDays: 0, hoursPerDay: 8, countsAgainstPool: false,
     });
-    Store.set(SK.timeOff, state.timeOffTypes).then(() => setSyncIdle());
+    saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
     renderTOTypes(state);
   };
 
@@ -216,7 +217,7 @@ export function wireSettings(state, { saveAll }) {
     if (!name) return;
     state.companies.push({ id: name.toLowerCase().replace(/\s+/g, '-'), name });
     document.getElementById('newCompany').value = '';
-    Store.set(SK.companies, state.companies).then(() => setSyncIdle());
+    saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
     renderCompaniesList(state);
   };
 

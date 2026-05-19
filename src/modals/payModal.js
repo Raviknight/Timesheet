@@ -4,8 +4,8 @@
  * Paycheck add/edit modal. Pulls hours from time log if requested.
  */
 
-import { Store } from '../data/storage.js';
 import { SK } from '../data/schema.js';
+import { saveKey } from '../app.js';
 import { getPayPeriodFor } from '../core/period.js';
 import { computeHours, fmtDate, addDays } from '../core/time.js';
 import { escapeHtml } from '../core/format.js';
@@ -92,7 +92,7 @@ async function savePay() {
   } else {
     stateRef.pays.push(rec);
   }
-  await Store.set(SK.pays, stateRef.pays);
+  if (!await saveKey(SK.pays, stateRef.pays, 'Paycheck')) return;
   setSyncIdle();
   closePayModal();
   rerender();
@@ -103,7 +103,7 @@ async function deletePay() {
   if (editingIdx === null || editingIdx < 0) return;
   if (!confirm('Delete this paycheck?')) return;
   stateRef.pays.splice(editingIdx, 1);
-  await Store.set(SK.pays, stateRef.pays);
+  if (!await saveKey(SK.pays, stateRef.pays, 'Paycheck')) return;
   setSyncIdle();
   closePayModal();
   rerender();
