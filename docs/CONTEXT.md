@@ -83,6 +83,26 @@ In rough priority order:
 - Don't reach for a state management library. The single `state` object in
   `app.js` is fine for this size.
 
+## Known issues — deferred
+
+**Modal overlay survives mid-session logout (low priority)**
+
+When a user is editing in a modal (entry or pay) and signs out 
+from another tab, the page background correctly routes to the 
+auth view, but the modal overlay stays open. If the user clicks 
+Save in the open modal, the saveKey detection now correctly 
+catches the lost session in most cases, but the modal flow can 
+race past it depending on how the user got there.
+
+Real-world likelihood is very low (single-user personal app, 
+user would notice tab B logging them out). Not blocking 5c.2 
+completion. Revisit only if multi-user / shared-account scope 
+ever changes.
+
+Fix when revisited: in the onAuthChange SIGNED_OUT branch, 
+close any open modals before calling showAuthView. One-line 
+addition once we know where modal close handlers live.
+
 ## Session log
 
 ### May 18, 2026 — Phase 3 Steps 5a, 5b, 5c.1 complete + Step 8 forward
