@@ -128,6 +128,7 @@ async function init() {
 
   // Check current session
   const session = await getCurrentSession();
+  console.log('init: session?', !!session);
   if (!session) {
     showAuthView();
     return;
@@ -176,9 +177,11 @@ async function bootApp() {
 
   // Land on Pay Period
   switchView('dashboard', state);
+  console.log('bootApp: complete, currentView=', state.ui.currentView);
 }
 
 function showAuthView() {
+  console.log('showAuthView called');
   // Hide all normal views, show the auth view
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
