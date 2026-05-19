@@ -8,8 +8,6 @@
  *   4. Switch to the default landing view
  */
 
-console.log('app.js: module loading');
-
 import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
@@ -32,10 +30,6 @@ import { initPayModal } from './modals/payModal.js';
 
 import { onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
-
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('UNHANDLED REJECTION:', e.reason);
-});
 
 /** Single in-memory state object. UI modules read from here directly. */
 const state = {
@@ -129,7 +123,6 @@ function rerender() {
 }
 
 async function init() {
-  console.log('init: entered');
   wireAuth();
   // The onAuthChange listener below handles routing on both
   // fresh load and after sign-in/sign-out. No need to call
@@ -138,37 +131,27 @@ async function init() {
 }
 
 async function bootApp(session) {
-  console.log('bootApp called');
-  console.log('bootApp: step 2 - ensureBootstrapped');
   try {
-    const profile = await ensureBootstrapped(session.user.id, session.user.email);
-    console.log('User profile ready:', profile);
+    await ensureBootstrapped(session.user.id, session.user.email);
   } catch (e) {
     console.error('Bootstrap failed:', e);
     toast('Failed to set up account: ' + e.message);
     return;
   }
-  console.log('bootApp: step 3 - loadAll');
   await loadAll();
-  console.log('bootApp: step 4 - renderTopBar');
   renderTopBar(state.profile);
   updateSignOutVisibility(true);
-  console.log('bootApp: step 5 - wire views');
   wireTabs(state);
   wireDashboard(state);
   wireLog(state);
   wirePaychecks(state);
   wireSettings(state, { saveAll });
-  console.log('bootApp: step 6 - wire modals');
   initEntryModal(state, rerender);
   initPayModal(state, rerender);
-  console.log('bootApp: step 7 - switchView');
   switchView('dashboard', state);
-  console.log('bootApp: complete, currentView=', state.ui.currentView);
 }
 
 function showAuthView() {
-  console.log('showAuthView called');
   // Hide all normal views, show the auth view
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -200,7 +183,6 @@ window.handleSignOut = async function () {
 let appBooted = false;
 
 onAuthChange(async (event, session) => {
-  console.log('Auth event:', event, 'session?', !!session);
   if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session) {
     if (appBooted) return;
     appBooted = true;
