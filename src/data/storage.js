@@ -58,6 +58,20 @@ export const STORAGE_MODE = new Proxy({}, {
   }
 });
 
+// ===========================================================
+// Write cache for diff-tracked remote writes
+// ===========================================================
+//
+// Keyed by storage key. Each entry holds:
+//   snapshot:  the last-loaded data shape returned by .get()
+//   companyId: the active company id captured at load time
+//
+// Writes diff against the snapshot to send only changes.
+// The cache is reset on each successful .get() of that key.
+// If .set() is called for a key with no cache entry, the write
+// fails (we never silently full-write without a known baseline).
+const writeCache = {};
+
 // ===========================================================================
 // LocalStore — browser localStorage backed
 // ===========================================================================
@@ -179,24 +193,48 @@ export const RemoteStore = {
       }
 
       if (key === 'ts:entries') {
+        // Fetch active_company_id first so we can scope the read and
+        // tag the write cache. Single source of truth: the profiles row.
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('active_company_id')
+          .maybeSingle();
+        const companyId = profile?.active_company_id || null;
+        if (!companyId) {
+          console.error('[storage] entries read: no active_company_id on profile');
+          writeCache['ts:entries'] = { snapshot: {}, companyId: null };
+          return fallback;
+        }
+
         const { data, error } = await supabase
           .from('entries')
-          .select('date, segments, time_off, notes');
+          .select('date, segments, time_off, notes')
+          .eq('company_id', companyId);
         if (error) {
           console.error('[storage] entries read failed:', error);
           return fallback;
         }
-        if (!data || data.length === 0) return fallback;
-        // Convert array of rows to object keyed by date (legacy format)
+
         const out = {};
-        for (const row of data) {
-          out[row.date] = {
-            date: row.date,
-            segments: row.segments || [],
-            timeOff: row.time_off,
-            notes: row.notes,
-          };
+        if (data) {
+          for (const row of data) {
+            out[row.date] = {
+              date: row.date,
+              segments: row.segments || [],
+              timeOff: row.time_off,
+              notes: row.notes,
+            };
+          }
         }
+
+        // Cache a deep snapshot so later mutations to `out` by the UI
+        // don't poison the diff baseline.
+        writeCache['ts:entries'] = {
+          snapshot: JSON.parse(JSON.stringify(out)),
+          companyId,
+        };
+
+        if (data && data.length === 0) return fallback;
         return out;
       }
 
@@ -276,6 +314,84 @@ export const RemoteStore = {
         return true;
       }
 
+      if (key === 'ts:entries') {
+        const userId = getSignedInUserId();
+        if (!userId) {
+          console.error('[storage] entries write attempted while signed out');
+          return false;
+        }
+        const cache = writeCache['ts:entries'];
+        if (!cache || !cache.companyId) {
+          console.error('[storage] entries write attempted without a load-time cache; refusing to write');
+          return false;
+        }
+        const companyId = cache.companyId;
+        const oldSnap = cache.snapshot || {};
+        const newSnap = value || {};
+
+        // Diff
+        const toUpsert = [];
+        const toDelete = [];
+        for (const date of Object.keys(newSnap)) {
+          const oldRow = oldSnap[date];
+          const newRow = newSnap[date];
+          if (!oldRow) {
+            toUpsert.push(newRow);
+          } else if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
+            toUpsert.push(newRow);
+          }
+        }
+        for (const date of Object.keys(oldSnap)) {
+          if (!newSnap[date]) toDelete.push(date);
+        }
+
+        if (toUpsert.length === 0 && toDelete.length === 0) {
+          // No changes; nothing to do
+          return true;
+        }
+
+        // Upserts: rely on the (user_id, company_id, date) unique
+        // constraint for conflict resolution. Map app shape to DB shape.
+        if (toUpsert.length > 0) {
+          const rows = toUpsert.map(e => ({
+            user_id: userId,
+            company_id: companyId,
+            date: e.date,
+            segments: e.segments || [],
+            time_off: e.timeOff || null,
+            notes: e.notes || null,
+          }));
+          const { error: upsertErr } = await supabase
+            .from('entries')
+            .upsert(rows, { onConflict: 'user_id,company_id,date' });
+          if (upsertErr) {
+            console.error('[storage] entries upsert failed:', upsertErr);
+            return false;
+          }
+        }
+
+        if (toDelete.length > 0) {
+          const { error: deleteErr } = await supabase
+            .from('entries')
+            .delete()
+            .eq('user_id', userId)
+            .eq('company_id', companyId)
+            .in('date', toDelete);
+          if (deleteErr) {
+            console.error('[storage] entries delete failed:', deleteErr);
+            return false;
+          }
+        }
+
+        // Success: update the cache snapshot to the new baseline.
+        writeCache['ts:entries'] = {
+          snapshot: JSON.parse(JSON.stringify(newSnap)),
+          companyId,
+        };
+        console.log(`[storage] entries synced: ${toUpsert.length} upserted, ${toDelete.length} deleted`);
+        return true;
+      }
+
       // Skip writes for read-only or bootstrap-managed keys
       if (key === 'ts:companies' || key === 'ts:timeOffTypes' || key === 'ts:schemaVersion') {
         // No-op: these are managed by bootstrap, not client writes.
@@ -283,7 +399,7 @@ export const RemoteStore = {
         return true;
       }
 
-      // Entries and pays still pending (5c.2 and 5c.3)
+      // Pays still pending (5c.3)
       console.warn('[storage] RemoteStore.set not yet implemented for:', key);
       return false;
     } catch (e) {
