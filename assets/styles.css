@@ -145,10 +145,11 @@ textarea { resize: vertical; min-height: 60px; font-family: inherit; }
   border-radius: var(--radius);
   cursor: pointer; font-size: 14px; font-weight: 500;
 }
-.btn:hover { background: var(--surface-2); }
-.btn:active { transform: scale(0.98); }
+.btn:not(:disabled):hover { background: var(--surface-2); }
+.btn:not(:disabled):active { transform: scale(0.98); }
 .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
-.btn-primary:hover { background: var(--primary); opacity: 0.9; }
+.btn-primary:not(:disabled):hover { background: var(--primary); opacity: 0.9; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-danger { color: var(--danger); border-color: var(--danger); }
 .btn-sm { padding: 4px 10px; font-size: 13px; }
 .btn-ghost { background: none; border: none; color: var(--primary); padding: 4px 8px; }
