@@ -88,7 +88,7 @@ function refreshStandardDayUI() {
   const totalEl = document.getElementById('setSdTotal');
   const errEl = document.getElementById('setSdError');
   const btn = document.getElementById('btnSaveStandardDay');
-  totalEl.textContent = computeStandardDayHours(sd).toFixed(2);
+  totalEl.textContent = err ? '—' : computeStandardDayHours(sd).toFixed(2);
   if (err) {
     errEl.textContent = err;
     errEl.style.display = '';
