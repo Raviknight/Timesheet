@@ -462,14 +462,15 @@ export function wireSettings(state, { saveAll }) {
   };
 
   document.getElementById('btnExportCSV').onclick = () => {
-    const rows = [['Date', 'Day', 'Segment', 'Clock In', 'Break Start',
-      'Break End', 'Clock Out', 'Segment Hours', 'Day Total', 'Time Off', 'Notes']];
+    const rows = [['Date', 'Day', 'Segment', 'Clock In', 'Clock Out',
+      'Break Minutes', 'Segment Hours', 'Day Total', 'Time Off', 'Notes']];
     const sorted = Object.values(state.entries).sort((a, b) => a.date.localeCompare(b.date));
+    const breakMin = state.settings.breakMinutes || 0;
     for (const e of sorted) {
       const segs = entrySegments(e);
       const dayTotal = computeHours(e, state.settings).toFixed(2);
       if (segs.length === 0) {
-        rows.push([e.date, dayShort(e.date), '', '', '', '', '', '',
+        rows.push([e.date, dayShort(e.date), '', '', '', '', '',
           dayTotal, e.timeOff || '', (e.notes || '').replace(/"/g, '""')]);
         continue;
       }
@@ -477,7 +478,8 @@ export function wireSettings(state, { saveAll }) {
         const sh = computeSegmentHours(s, e.date, state.settings).toFixed(2);
         rows.push([
           e.date, dayShort(e.date), i + 1,
-          s.clockIn || '', s.breakStart || '', s.breakEnd || '', s.clockOut || '',
+          s.clockIn || '', s.clockOut || '',
+          s.breakTaken ? breakMin : 0,
           sh,
           i === 0 ? dayTotal : '',
           i === 0 ? (e.timeOff || '') : '',

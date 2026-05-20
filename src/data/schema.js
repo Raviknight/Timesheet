@@ -12,7 +12,7 @@
  *   3. Test with a sample export from the previous version
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Storage keys. Always reference via SK.* — never hard-code strings. */
 export const SK = {
@@ -73,35 +73,70 @@ export const DEFAULT_TIME_OFF_TYPES = [
 ];
 
 /**
- * Migrate a stored entry from any older shape to the current shape.
- * Currently we only have one shape transition: legacy flat fields to
- * segments[] (introduced when multi-segment days were added).
+ * Migrate a stored entry to the current shape.
+ *
+ * Two historical shapes are handled:
+ *   v0: legacy flat fields (clockIn/clockOut/breakStart/breakEnd at top level)
+ *   v1: segments[] with { clockIn, clockOut, breakStart, breakEnd }
+ *
+ * Current shape (v2) is segments[] with { clockIn, clockOut, breakTaken }.
+ * Pure time-off entries carry segments: [].
  */
 export function migrateEntry(e) {
   if (!e) return e;
-  if (Array.isArray(e.segments)) return e;
 
-  const hasTimes = e.clockIn || e.clockOut || e.breakStart || e.breakEnd;
-  if (hasTimes) {
-    return {
-      date: e.date,
-      segments: [{
-        clockIn: e.clockIn || null,
-        clockOut: e.clockOut || null,
-        breakStart: e.breakStart || null,
-        breakEnd: e.breakEnd || null,
-      }],
-      timeOff: e.timeOff || null,
-      notes: e.notes || null,
-    };
+  // v0 -> v1: lift flat fields into a single segment.
+  let segments;
+  if (Array.isArray(e.segments)) {
+    segments = e.segments;
+  } else if (e.clockIn || e.clockOut || e.breakStart || e.breakEnd) {
+    segments = [{
+      clockIn: e.clockIn || null,
+      clockOut: e.clockOut || null,
+      breakStart: e.breakStart || null,
+      breakEnd: e.breakEnd || null,
+    }];
+  } else {
+    segments = [];
   }
+
+  const out = segments
+    .map(normalizeSegment)
+    .filter(s => s.clockIn || s.clockOut);
 
   return {
     date: e.date,
-    segments: [],
+    segments: out,
     timeOff: e.timeOff || null,
     notes: e.notes || null,
   };
+}
+
+/**
+ * Normalize a single segment to { clockIn, clockOut, breakTaken }.
+ * If a stale segment still carries breakStart/breakEnd, derive breakTaken
+ * using the same semantic-bounds rule the SQL migration used: both endpoints
+ * present, end > start, and the window sits inside the clock-in/out span.
+ */
+function normalizeSegment(s) {
+  if (!s) return { clockIn: null, clockOut: null, breakTaken: false };
+
+  const clockIn = s.clockIn || null;
+  const clockOut = s.clockOut || null;
+
+  if (typeof s.breakTaken === 'boolean') {
+    return { clockIn, clockOut, breakTaken: s.breakTaken };
+  }
+
+  const bs = s.breakStart || '';
+  const be = s.breakEnd || '';
+  const ci = clockIn || '';
+  const co = clockOut || '';
+  const breakTaken =
+    !!bs && !!be && be > bs &&
+    !!ci && !!co && bs >= ci && be <= co;
+
+  return { clockIn, clockOut, breakTaken };
 }
 
 /** Migrate the entire entries map. */

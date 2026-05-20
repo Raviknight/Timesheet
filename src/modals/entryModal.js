@@ -26,7 +26,8 @@ export function initEntryModal(state, onAfterSave) {
   rerender = onAfterSave;
 
   document.getElementById('btnAddSegment').onclick = () => {
-    modalSegments.push({ clockIn: null, clockOut: null, breakStart: null, breakEnd: null });
+    const isFirst = modalSegments.length === 0;
+    modalSegments.push({ clockIn: null, clockOut: null, breakTaken: isFirst });
     renderSegments();
     updateComputedHours();
   };
@@ -108,11 +109,11 @@ function renderSegments() {
         <div class="grow"><label>Clock out</label>
           <input type="time" data-seg="${i}" data-f="clockOut" value="${s.clockOut || ''}"></div>
       </div>
-      <div class="row" style="margin-top:6px">
-        <div class="grow"><label>Break start <span class="muted">(optional)</span></label>
-          <input type="time" data-seg="${i}" data-f="breakStart" value="${s.breakStart || ''}"></div>
-        <div class="grow"><label>Break end <span class="muted">(optional)</span></label>
-          <input type="time" data-seg="${i}" data-f="breakEnd" value="${s.breakEnd || ''}"></div>
+      <div class="row" style="margin-top:8px">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal">
+          <input type="checkbox" data-seg-break="${i}" ${s.breakTaken ? 'checked' : ''}>
+          Break taken
+        </label>
       </div>
     </div>`;
   });
@@ -124,6 +125,20 @@ function renderSegments() {
       modalSegments[i][inp.dataset.f] = inp.value || null;
       updateComputedHours();
       // Update the badge in-place to preserve focus
+      const segH = computeSegmentHours(
+        modalSegments[i],
+        document.getElementById('eDate').value || fmtDate(new Date()),
+        stateRef.settings
+      );
+      const badge = c.querySelectorAll('.badge')[i];
+      if (badge) badge.textContent = segH.toFixed(2) + ' h';
+    };
+  });
+  c.querySelectorAll('input[data-seg-break]').forEach(inp => {
+    inp.onchange = () => {
+      const i = +inp.dataset.segBreak;
+      modalSegments[i].breakTaken = inp.checked;
+      updateComputedHours();
       const segH = computeSegmentHours(
         modalSegments[i],
         document.getElementById('eDate').value || fmtDate(new Date()),
