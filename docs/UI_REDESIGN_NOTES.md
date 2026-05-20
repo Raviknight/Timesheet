@@ -237,3 +237,53 @@ solo-user editing is fine since there is one user per company in
 practice.
 
 ---
+
+## One-click clock in / clock out from dashboard (deferred, post Phase 3)
+
+Add a "Clock In" / "Clock Out" button to the dashboard so the 
+user can punch in and out without opening the entry modal. 
+Captures system time and creates or updates today's entry.
+
+**Behavior:**
+- Dashboard shows a single primary button. If no entry exists 
+  for today: button reads "Clock In" and is the primary action.
+- On click: creates an entry for today with current system time 
+  as clockIn (HH:MM), default break times 12:00 / 12:30, no 
+  clockOut yet.
+- Button changes to "Clock Out".
+- On click: updates today's entry with current system time as 
+  clockOut. Saves to Supabase via the normal saveKey path.
+- Button changes to a confirmation state ("Logged out at 16:32"). 
+  Visible until midnight or until the user returns the next day.
+- If the user forgets and the day rolls over without clocking out, 
+  the next day's "Clock In" still works. Yesterday's entry stays 
+  with no clockOut (user can fix it manually via the modal).
+
+**Manual override:**
+- Daily Log view (existing) still lets the user add or edit any 
+  entry. This is the recovery path if Clock In / Out is missed 
+  or wrong.
+
+**Edge cases to handle:**
+- User is already clocked in for today (refresh page): button 
+  still reads "Clock Out", uses the existing entry, not a new one.
+- User clicks Clock In twice in a row: second click is a no-op or 
+  shows a soft confirmation.
+- User clicks Clock Out before Clock In on a fresh day: should 
+  not be possible if the button states are wired right, but guard 
+  anyway.
+- The break (12:00 / 12:30) is recorded by default. If the user 
+  is clocking out before 12:30, the break isn't real; consider 
+  not recording break times until clockOut is later than 12:30.
+
+**Implementation touchpoints:**
+- Dashboard view component picks up a new top section.
+- New helper for "current time as HH:MM string".
+- Reuses existing entry save path; no new schema or DB work.
+
+**Related deferred ideas this builds on:**
+- Smart entry defaults (already captured above): the smart-default 
+  logic for break times and time-off auto-fill should apply to 
+  the Clock In / Clock Out flow too.
+
+---
