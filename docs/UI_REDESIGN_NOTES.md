@@ -150,3 +150,57 @@ Useful for personal tracking. No effect on paycheck math.
 migration logic. Plan a small migration step.
 
 ---
+
+## Vacation carry-over and annual reset (deferred, post Phase 3)
+
+Vacation/PTO balances should reset on January 1 each year based on 
+each company's policy. Unused days from the prior year may carry 
+over, but typically with a cap.
+
+**Example:**
+- 2027: 10 PTO days granted. User takes 4. Ends year with 6 left.
+- Company allows up to 5 days carry-over.
+- 2028: starts with 10 (new annual grant) + 5 (capped carry-over) 
+  = 15 days available.
+
+**Settings to add per time-off type:**
+- annualGrant (days)
+- maxCarryOver (days, or null for unlimited)
+- resetDate (default Jan 1, configurable for non-calendar fiscal years)
+- isSharedPool (already exists via sharedPoolWith)
+
+**Logic touchpoints:**
+- New balance computation that processes year boundaries.
+- Year-rollover job: either lazy (computed at dashboard render) or 
+  one-time at app load on/after Jan 1.
+- Settings UI to configure per-type policy.
+
+Until this ships, users adjust pool balances manually in Settings.
+
+---
+
+## Pre-populate holidays (deferred, post Phase 3)
+
+When viewing a new year for the first time, the app could 
+auto-create HOLIDAY entries for known company holidays so the 
+user doesn't have to log each one manually.
+
+**Two design options:**
+- Per-company holiday calendar in Settings. Each company has its 
+  own list of dates. User edits the list. Could include common 
+  defaults (US federal holidays).
+- Federal-holidays baseline. Pre-populate 11 US federal holidays 
+  each year. User removes any their company does not observe.
+
+The per-company option is more flexible and matches the 
+multi-company architecture the app already has. Federal-baseline 
+is simpler.
+
+**Implementation touchpoints:**
+- New settings section per company: list of holiday dates and names.
+- Logic to insert HOLIDAY entries for any dates in the list that 
+  do not already have an entry.
+- Trigger: first time user opens the app in a new calendar year, 
+  or via a "Sync holidays" button in Settings.
+
+---
