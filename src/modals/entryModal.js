@@ -12,7 +12,7 @@
 
 import { SK } from '../data/schema.js';
 import { saveKey } from '../app.js';
-import { computeHours, computeSegmentHours, entrySegments, fmtDate } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM } from '../core/time.js';
 import { setSyncIdle } from '../ui/topbar.js';
 import { toast } from '../ui/toast.js';
 
@@ -105,13 +105,13 @@ function renderSegments() {
       </div>
       <div class="row">
         <div class="grow"><label>Clock in</label>
-          <input type="time" data-seg="${i}" data-f="clockIn" value="${s.clockIn || ''}"></div>
+          <input type="time" data-seg="${i}" data-f="clockIn" value="${padHM(s.clockIn)}"></div>
         <div class="grow"><label>Clock out</label>
-          <input type="time" data-seg="${i}" data-f="clockOut" value="${s.clockOut || ''}"></div>
+          <input type="time" data-seg="${i}" data-f="clockOut" value="${padHM(s.clockOut)}"></div>
       </div>
       <div class="row" style="margin-top:8px">
         <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal">
-          <input type="checkbox" data-seg-break="${i}" ${s.breakTaken ? 'checked' : ''}>
+          <input type="checkbox" data-seg-break="${i}" ${s.breakTaken === true ? 'checked' : ''}>
           Break taken
         </label>
       </div>

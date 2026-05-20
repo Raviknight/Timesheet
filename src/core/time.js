@@ -5,8 +5,9 @@
  *
  * Rules encoded here (do not change without updating docs/EXCEL_LOGIC.md):
  *   1. Clock in/out times are rounded to the nearest 15 minutes.
- *   2. Break is deducted ONLY on weekdays, ONLY when a segment is > 5h,
- *      and ONLY when the segment is flagged as breakTaken.
+ *   2. Break is deducted when the segment is flagged as breakTaken AND
+ *      the segment is > 5h. The user owns the day-of-week judgment via
+ *      the checkbox.
  *   3. A day can have multiple segments (clock out, come back).
  *   4. Break is per-segment, not per-day.
  *   5. The break duration comes from settings.breakMinutes.
@@ -43,6 +44,14 @@ export function timeToMinutes(t) {
   return h * 60 + m;
 }
 
+/** Zero-pad "H:MM" to "HH:MM" so HTML time inputs accept it. */
+export function padHM(t) {
+  if (!t) return '';
+  const [h, m] = String(t).split(':');
+  if (h === undefined || m === undefined) return t;
+  return pad(Number(h)) + ':' + pad(Number(m));
+}
+
 /** Snap a minute count to the nearest 15 minutes. */
 export function roundQuarter(min) {
   return Math.round(min / 15) * 15;
@@ -75,11 +84,8 @@ export function computeSegmentHours(seg, date, settings) {
   let gross = coR - ciR;
   if (gross <= 0) return 0;
 
-  const dow = parseDate(date).getDay();
-  const isWeekday = dow >= 1 && dow <= 5;
   const breakDur = settings.breakMinutes || 0;
-
-  if (seg.breakTaken && isWeekday && gross > 5 * 60 && breakDur > 0) {
+  if (seg.breakTaken && gross > 5 * 60 && breakDur > 0) {
     gross -= breakDur;
   }
 
