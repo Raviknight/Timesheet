@@ -22,6 +22,11 @@ import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate } f
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 
+// UI state for the per-year override draft form.
+// null when no draft is active. When active:
+//   { typeIndex: number, year: string, days: string, error: string|null }
+let pbyDraft = null;
+
 export function renderSettings(state) {
   const s = state.settings;
   setVal('setSystem', s.system || 'biweekly');
@@ -113,11 +118,33 @@ function renderTOTypes(state) {
               <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
             <button class="btn btn-sm" data-pby-del="${i}:${y}">Remove</button>
           </div>`).join('');
+      const isDraftHere = pbyDraft && pbyDraft.typeIndex === i;
+      let pbyAddSection = '';
+      if (isDraftHere) {
+        const errHtml = pbyDraft.error
+          ? `<div class="muted" style="font-size:0.8em; color:var(--danger); margin-top:4px">${pbyDraft.error}</div>`
+          : '';
+        pbyAddSection = `
+          <div style="margin-top:8px; padding:8px; border:1px dashed var(--border); border-radius:var(--radius)">
+            <div class="muted" style="font-size:0.85em; margin-bottom:6px">Add new override</div>
+            <div class="row" style="align-items:flex-end; gap:6px">
+              <div style="flex:0 0 90px"><label>Year</label>
+                <input type="number" id="pbyDraftYear" min="2000" max="2100" step="1" value="${pbyDraft.year}" placeholder="e.g. 2025"></div>
+              <div style="flex:0 0 110px"><label>Days</label>
+                <input type="number" id="pbyDraftDays" min="0" step="0.5" value="${pbyDraft.days}" placeholder="e.g. 6"></div>
+              <button class="btn btn-sm btn-primary" id="pbyDraftAdd">Add</button>
+              <button class="btn btn-sm" id="pbyDraftCancel">Cancel</button>
+            </div>
+            ${errHtml}
+          </div>`;
+      } else {
+        pbyAddSection = `<button class="btn btn-sm" data-pby-add="${i}" style="margin-top:8px">Add year override</button>`;
+      }
       pbyHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
         <div class="muted" style="font-size:0.85em; margin-bottom:2px">Per-year overrides</div>
         <div class="muted" style="font-size:0.75em; margin-bottom:6px; font-style:italic">Applies to this company's policy only.</div>
         ${rowsHtml}
-        <button class="btn btn-sm" data-pby-add="${i}" style="margin-top:4px">Add year override</button>
+        ${pbyAddSection}
       </div>`;
     }
     html += `<div style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
@@ -204,17 +231,61 @@ function renderTOTypes(state) {
   });
   list.querySelectorAll('button[data-pby-add]').forEach(btn => {
     btn.onclick = () => {
-      const i = +btn.dataset.pbyAdd;
-      const t = state.timeOffTypes[i];
-      if (!t.poolByYear) t.poolByYear = {};
-      const currentYear = fmtDate(new Date()).slice(0, 4);
-      if (t.poolByYear[currentYear] == null) {
-        t.poolByYear[currentYear] = t.poolDays || 0;
-      }
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      pbyDraft = {
+        typeIndex: +btn.dataset.pbyAdd,
+        year: '',
+        days: '',
+        error: null,
+      };
       renderTOTypes(state);
     };
   });
+
+  const draftYearInput = document.getElementById('pbyDraftYear');
+  const draftDaysInput = document.getElementById('pbyDraftDays');
+  const draftAddBtn = document.getElementById('pbyDraftAdd');
+  const draftCancelBtn = document.getElementById('pbyDraftCancel');
+
+  if (draftYearInput) {
+    draftYearInput.oninput = () => { pbyDraft.year = draftYearInput.value; };
+  }
+  if (draftDaysInput) {
+    draftDaysInput.oninput = () => { pbyDraft.days = draftDaysInput.value; };
+  }
+  if (draftCancelBtn) {
+    draftCancelBtn.onclick = () => {
+      pbyDraft = null;
+      renderTOTypes(state);
+    };
+  }
+  if (draftAddBtn) {
+    draftAddBtn.onclick = () => {
+      const yr = parseInt(pbyDraft.year, 10);
+      const days = parseFloat(pbyDraft.days);
+      if (!Number.isFinite(yr) || yr < 2000 || yr > 2100) {
+        pbyDraft.error = 'Year must be between 2000 and 2100.';
+        renderTOTypes(state);
+        return;
+      }
+      if (!Number.isFinite(days) || days < 0) {
+        pbyDraft.error = 'Days must be 0 or greater.';
+        renderTOTypes(state);
+        return;
+      }
+      const t = state.timeOffTypes[pbyDraft.typeIndex];
+      if (!t.poolByYear) t.poolByYear = {};
+      const yrKey = String(yr);
+      if (t.poolByYear[yrKey] != null) {
+        pbyDraft.error = `Override for ${yrKey} already exists. Edit the existing row instead.`;
+        renderTOTypes(state);
+        return;
+      }
+      t.poolByYear[yrKey] = days;
+      pbyDraft = null;
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      renderTOTypes(state);
+    };
+  }
   list.querySelectorAll('button[data-del]').forEach(btn => {
     btn.onclick = () => {
       if (!confirm(`Remove ${state.timeOffTypes[+btn.dataset.del].label}?`)) return;
