@@ -99,6 +99,26 @@ function renderTOTypes(state) {
   const list = document.getElementById('timeOffTypesList');
   let html = '';
   state.timeOffTypes.forEach((t, i) => {
+    let pbyHtml = '';
+    if (t.countsAgainstPool && !t.sharedPoolWith) {
+      const overrides = t.poolByYear || {};
+      const years = Object.keys(overrides).sort();
+      const rowsHtml = years.length === 0
+        ? `<div class="muted" style="font-size:0.85em; margin-bottom:6px">No overrides. Default pool of ${t.poolDays || 0} days applies to all years.</div>`
+        : years.map(y => `
+          <div class="row" style="margin-bottom:4px; align-items:flex-end; gap:6px">
+            <div style="flex:0 0 90px"><label>Year</label>
+              <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="year" min="2000" max="2100" step="1" value="${y}"></div>
+            <div style="flex:0 0 110px"><label>Days</label>
+              <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
+            <button class="btn btn-sm" data-pby-del="${i}:${y}">Remove</button>
+          </div>`).join('');
+      pbyHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
+        <div class="muted" style="font-size:0.85em; margin-bottom:6px">Per-year overrides</div>
+        ${rowsHtml}
+        <button class="btn btn-sm" data-pby-add="${i}" style="margin-top:4px">Add year override</button>
+      </div>`;
+    }
     html += `<div style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
       <div class="row" style="margin-bottom:6px">
         <div style="flex:0 0 90px"><label>Code</label>
@@ -124,6 +144,7 @@ function renderTOTypes(state) {
             ).join('')}
           </select></div>
       </div>
+      ${pbyHtml}
       <div class="row" style="margin-top:6px;justify-content:flex-end">
         <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
       </div>
@@ -131,7 +152,7 @@ function renderTOTypes(state) {
   });
   list.innerHTML = html;
 
-  list.querySelectorAll('input,select').forEach(inp => {
+  list.querySelectorAll('input[data-i],select[data-i]').forEach(inp => {
     inp.onchange = () => {
       const i = +inp.dataset.i;
       const f = inp.dataset.f;
@@ -140,6 +161,57 @@ function renderTOTypes(state) {
       else if (f === 'countsAgainstPool') v = v === 'true';
       state.timeOffTypes[i][f] = v;
       saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+    };
+  });
+  list.querySelectorAll('input[data-pby-i]').forEach(inp => {
+    inp.onchange = () => {
+      const i = +inp.dataset.pbyI;
+      const oldYear = inp.dataset.pbyYear;
+      const f = inp.dataset.pbyF;
+      const t = state.timeOffTypes[i];
+      if (!t.poolByYear) t.poolByYear = {};
+      if (f === 'year') {
+        const parsed = parseInt(inp.value, 10);
+        if (!Number.isFinite(parsed) || parsed < 2000 || parsed > 2100) {
+          renderTOTypes(state);
+          return;
+        }
+        const newYear = String(parsed);
+        if (newYear === oldYear) return;
+        const existingDays = t.poolByYear[oldYear];
+        delete t.poolByYear[oldYear];
+        t.poolByYear[newYear] = existingDays;
+      } else if (f === 'days') {
+        t.poolByYear[oldYear] = +inp.value;
+      }
+      if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      renderTOTypes(state);
+    };
+  });
+  list.querySelectorAll('button[data-pby-del]').forEach(btn => {
+    btn.onclick = () => {
+      const [iStr, y] = btn.dataset.pbyDel.split(':');
+      const t = state.timeOffTypes[+iStr];
+      if (t.poolByYear) {
+        delete t.poolByYear[y];
+        if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
+      }
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      renderTOTypes(state);
+    };
+  });
+  list.querySelectorAll('button[data-pby-add]').forEach(btn => {
+    btn.onclick = () => {
+      const i = +btn.dataset.pbyAdd;
+      const t = state.timeOffTypes[i];
+      if (!t.poolByYear) t.poolByYear = {};
+      const currentYear = fmtDate(new Date()).slice(0, 4);
+      if (t.poolByYear[currentYear] == null) {
+        t.poolByYear[currentYear] = t.poolDays || 0;
+      }
+      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      renderTOTypes(state);
     };
   });
   list.querySelectorAll('button[data-del]').forEach(btn => {

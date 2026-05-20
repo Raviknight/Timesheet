@@ -48,6 +48,23 @@ export const DEFAULT_SETTINGS = {
   breakMinutes: 30,          // default break deducted on segments > 5h
 };
 
+/**
+ * Time-off type shape:
+ *   {
+ *     code:               string   short code (PTO, SICK, ...)
+ *     label:              string   display name
+ *     poolDays:           number   default annual allowance in days
+ *     hoursPerDay:        number   conversion factor (typically 8)
+ *     countsAgainstPool:  boolean  whether it draws down a pool
+ *     sharedPoolWith?:    string   code of the pool owner this type rolls into
+ *     unpaid?:            boolean  marker for unpaid time
+ *     poolByYear?:        object   optional per-year override map,
+ *                                  e.g. { '2025': 6, '2026': 11 }.
+ *                                  When the active year has an entry, it
+ *                                  replaces poolDays for that year. Missing
+ *                                  years fall back to poolDays.
+ *   }
+ */
 export const DEFAULT_TIME_OFF_TYPES = [
   { code: 'PTO',     label: 'PTO',     poolDays: 11, countsAgainstPool: true,  hoursPerDay: 8 },
   { code: 'SICK',    label: 'Sick',    poolDays: 0,  countsAgainstPool: true,  hoursPerDay: 8, sharedPoolWith: 'PTO' },

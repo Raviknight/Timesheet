@@ -71,7 +71,12 @@ export function computePoolBalance(ownerType, allTypes, entries, settings) {
   }
 
   const hpd = ownerType.hoursPerDay || 8;
-  const poolHours = (ownerType.poolDays || 0) * hpd;
+  const today = fmtDate(new Date());
+  const yr = today.slice(0, 4);
+  const effectivePoolDays = (ownerType.poolByYear && ownerType.poolByYear[yr] != null)
+    ? ownerType.poolByYear[yr]
+    : (ownerType.poolDays || 0);
+  const poolHours = effectivePoolDays * hpd;
   const remaining = Math.max(0, poolHours - taken - scheduled);
   const pctTaken = poolHours > 0 ? Math.min(100, (taken / poolHours) * 100) : 0;
   const pctScheduled = poolHours > 0
