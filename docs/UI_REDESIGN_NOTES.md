@@ -204,3 +204,36 @@ is simpler.
   or via a "Sync holidays" button in Settings.
 
 ---
+
+## Company-scoped time-off policy administration (deferred, post Phase 3)
+
+Time-off types and their per-year pool overrides are stored 
+per-company in the database (time_off_types.company_id), but 
+the current UI exposes them as a general Settings section that 
+any signed-in user can edit.
+
+For the ADP-style multi-user model, this should move into a 
+company-admin area:
+
+- Regular users see the company's time-off policy as read-only 
+  information (codes, labels, pool sizes, per-year overrides).
+- Admins see the same data with edit controls.
+- The "Add year override" form, the per-year override rows, and 
+  the existing type fields (poolDays, hoursPerDay, etc.) all 
+  belong here.
+
+**Implementation touchpoints:**
+- New Company Settings or Admin section, gated by the user's role 
+  (profile.role === 'owner' or 'admin').
+- Move the Time Off Types card out of the general Settings page.
+- RLS policy review on time_off_types: read for all company 
+  members, write only for admins.
+- Profile-level Settings keeps user-scoped preferences (display 
+  preferences, default views) only.
+
+**Why deferred:** depends on the multi-company switcher and the 
+role-based admin UI, neither of which exists yet. Until then, 
+solo-user editing is fine since there is one user per company in 
+practice.
+
+---
