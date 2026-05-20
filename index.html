@@ -237,6 +237,46 @@
     </div>
 
     <div class="card">
+      <h3 class="card-title">Standard Day (default)</h3>
+      <div class="help" style="margin-bottom:8px">
+        Used to pre-fill new entries. Segment 2 is optional for split shifts.
+      </div>
+      <div class="row">
+        <div class="grow">
+          <label>Segment 1 start</label>
+          <input type="time" id="setSdSeg1Start">
+        </div>
+        <div class="grow">
+          <label>Segment 1 end</label>
+          <input type="time" id="setSdSeg1End">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow">
+          <label>Segment 2 start (optional)</label>
+          <input type="time" id="setSdSeg2Start">
+        </div>
+        <div class="grow">
+          <label>Segment 2 end (optional)</label>
+          <input type="time" id="setSdSeg2End">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow">
+          <label>Break (minutes)</label>
+          <input type="number" id="setSdBreakMin" min="0" step="5" value="30">
+          <div class="help">Deducted once when any segment runs longer than 5 hours.</div>
+        </div>
+      </div>
+      <div class="stat" style="margin-top:12px;background:var(--surface-2)">
+        <div class="stat-label">Total hours</div>
+        <div id="setSdTotal" style="font-size:14px;font-weight:500;margin-top:4px">0.0</div>
+      </div>
+      <div id="setSdError" class="help" style="color:var(--danger);margin-top:6px;display:none"></div>
+      <button class="btn btn-primary" id="btnSaveStandardDay" style="margin-top:10px">Save</button>
+    </div>
+
+    <div class="card">
       <h3 class="card-title">Companies</h3>
       <div id="companiesList"></div>
       <div class="row" style="margin-top:8px">

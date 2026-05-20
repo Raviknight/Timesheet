@@ -18,9 +18,10 @@ import {
 import { getPayPeriodFor } from '../core/period.js';
 import { clampDom } from '../core/period.js';
 import { escapeHtml, formatLong } from '../core/format.js';
-import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
+import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
@@ -41,9 +42,62 @@ export function renderSettings(state) {
   setVal('setBreakMin', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
+  const sd = resolveStandardDay(s);
+  setVal('setSdSeg1Start', sd.seg1Start || '');
+  setVal('setSdSeg1End', sd.seg1End || '');
+  setVal('setSdSeg2Start', sd.seg2Start || '');
+  setVal('setSdSeg2End', sd.seg2End || '');
+  setVal('setSdBreakMin', sd.breakMinutes ?? 30);
+  refreshStandardDayUI();
   refreshPPSettingsUI(state);
   renderTOTypes(state);
   renderCompaniesList(state);
+}
+
+function readStandardDayForm() {
+  return {
+    seg1Start: document.getElementById('setSdSeg1Start').value || null,
+    seg1End: document.getElementById('setSdSeg1End').value || null,
+    seg2Start: document.getElementById('setSdSeg2Start').value || null,
+    seg2End: document.getElementById('setSdSeg2End').value || null,
+    breakMinutes: parseFloat(document.getElementById('setSdBreakMin').value),
+  };
+}
+
+function validateStandardDay(sd) {
+  const segPair = (s, e, name) => {
+    if (!!s !== !!e) return `${name} needs both start and end.`;
+    if (s && e && timeToMinutes(e) <= timeToMinutes(s)) {
+      return `${name} end must be after start.`;
+    }
+    return null;
+  };
+  const e1 = segPair(sd.seg1Start, sd.seg1End, 'Segment 1');
+  if (e1) return e1;
+  const e2 = segPair(sd.seg2Start, sd.seg2End, 'Segment 2');
+  if (e2) return e2;
+  if (!Number.isFinite(sd.breakMinutes) || sd.breakMinutes < 0) {
+    return 'Break minutes must be 0 or greater.';
+  }
+  return null;
+}
+
+function refreshStandardDayUI() {
+  const sd = readStandardDayForm();
+  const err = validateStandardDay(sd);
+  const totalEl = document.getElementById('setSdTotal');
+  const errEl = document.getElementById('setSdError');
+  const btn = document.getElementById('btnSaveStandardDay');
+  totalEl.textContent = computeStandardDayHours(sd).toFixed(2);
+  if (err) {
+    errEl.textContent = err;
+    errEl.style.display = '';
+    btn.disabled = true;
+  } else {
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+    btn.disabled = false;
+  }
 }
 
 function setVal(id, v) {
@@ -345,6 +399,21 @@ export function wireSettings(state, { saveAll }) {
     setSyncIdle();
     renderTopBar(state.profile);
     toast('Profile saved');
+  };
+
+  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setSdBreakMin']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', refreshStandardDayUI);
+    });
+
+  document.getElementById('btnSaveStandardDay').onclick = async () => {
+    const sd = readStandardDayForm();
+    if (validateStandardDay(sd)) return;
+    state.settings.standard_day = sd;
+    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
+    setSyncIdle();
+    toast('Standard day saved');
   };
 
   document.getElementById('btnAddTOType').onclick = () => {
