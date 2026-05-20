@@ -114,7 +114,8 @@ function renderTOTypes(state) {
             <button class="btn btn-sm" data-pby-del="${i}:${y}">Remove</button>
           </div>`).join('');
       pbyHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
-        <div class="muted" style="font-size:0.85em; margin-bottom:6px">Per-year overrides</div>
+        <div class="muted" style="font-size:0.85em; margin-bottom:2px">Per-year overrides</div>
+        <div class="muted" style="font-size:0.75em; margin-bottom:6px; font-style:italic">Applies to this company's policy only.</div>
         ${rowsHtml}
         <button class="btn btn-sm" data-pby-add="${i}" style="margin-top:4px">Add year override</button>
       </div>`;
