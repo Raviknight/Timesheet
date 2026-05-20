@@ -612,11 +612,6 @@ export const RemoteStore = {
       }
 
       if (key === 'ts:timeOffTypes') {
-        const userId = getSignedInUserId();
-        if (!userId) {
-          console.error('[storage] time_off_types write attempted while signed out');
-          return false;
-        }
         const cache = writeCache['ts:timeOffTypes'];
         if (!cache || !cache.companyId) {
           console.error('[storage] time_off_types write attempted without a load-time cache; refusing to write');
@@ -641,7 +636,6 @@ export const RemoteStore = {
 
         function rowFromAppShape(t) {
           return {
-            user_id: userId,
             company_id: companyId,
             code: t.code,
             label: t.label,
@@ -693,7 +687,6 @@ export const RemoteStore = {
               unpaid: row.unpaid,
               pool_by_year: row.pool_by_year,
             })
-            .eq('user_id', row.user_id)
             .eq('company_id', row.company_id)
             .eq('code', row.code);
           if (updateErr) {
@@ -706,7 +699,6 @@ export const RemoteStore = {
           const { error: deleteErr } = await supabase
             .from('time_off_types')
             .delete()
-            .eq('user_id', userId)
             .eq('company_id', companyId)
             .eq('code', code);
           if (deleteErr) {
