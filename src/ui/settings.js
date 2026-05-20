@@ -47,7 +47,6 @@ export function renderSettings(state) {
   setVal('setSdSeg1End', sd.seg1End || '');
   setVal('setSdSeg2Start', sd.seg2Start || '');
   setVal('setSdSeg2End', sd.seg2End || '');
-  setVal('setSdBreakMin', sd.breakMinutes ?? 30);
   refreshStandardDayUI();
   refreshPPSettingsUI(state);
   renderTOTypes(state);
@@ -60,7 +59,6 @@ function readStandardDayForm() {
     seg1End: document.getElementById('setSdSeg1End').value || null,
     seg2Start: document.getElementById('setSdSeg2Start').value || null,
     seg2End: document.getElementById('setSdSeg2End').value || null,
-    breakMinutes: parseFloat(document.getElementById('setSdBreakMin').value),
   };
 }
 
@@ -76,9 +74,6 @@ function validateStandardDay(sd) {
   if (e1) return e1;
   const e2 = segPair(sd.seg2Start, sd.seg2End, 'Segment 2');
   if (e2) return e2;
-  if (!Number.isFinite(sd.breakMinutes) || sd.breakMinutes < 0) {
-    return 'Break minutes must be 0 or greater.';
-  }
   return null;
 }
 
@@ -88,7 +83,10 @@ function refreshStandardDayUI() {
   const totalEl = document.getElementById('setSdTotal');
   const errEl = document.getElementById('setSdError');
   const btn = document.getElementById('btnSaveStandardDay');
-  totalEl.textContent = err ? '—' : computeStandardDayHours(sd).toFixed(2);
+  // Source break minutes from the Pay Period form input live, so edits
+  // to either card reflect in the Standard Day total immediately.
+  const breakMin = parseFloat(document.getElementById('setBreakMin')?.value);
+  totalEl.textContent = err ? '—' : computeStandardDayHours(sd, breakMin).toFixed(2);
   if (err) {
     errEl.textContent = err;
     errEl.style.display = '';
@@ -401,7 +399,9 @@ export function wireSettings(state, { saveAll }) {
     toast('Profile saved');
   };
 
-  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setSdBreakMin']
+  // setBreakMin lives on the Pay Period card but feeds Standard Day's
+  // live total, so re-render that card when it changes too.
+  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setBreakMin']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', refreshStandardDayUI);

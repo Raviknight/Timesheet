@@ -190,6 +190,12 @@ async function loadAll() {
 
   state.profile = profile || { ...DEFAULT_PROFILE };
   state.settings = settings || { ...DEFAULT_SETTINGS };
+  // One-time read-side cleanup: standard_day previously carried its own
+  // breakMinutes. That value now lives on settings.breakMinutes (Pay Period).
+  // Strip the stale key so it doesn't survive the next save.
+  if (state.settings.standard_day && 'breakMinutes' in state.settings.standard_day) {
+    delete state.settings.standard_day.breakMinutes;
+  }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
   state.companies = companies || [...SEED_COMPANIES];
 
