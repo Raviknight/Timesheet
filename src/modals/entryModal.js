@@ -12,7 +12,8 @@
 
 import { SK } from '../data/schema.js';
 import { saveKey } from '../app.js';
-import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate } from '../core/time.js';
+import { resolveStandardDay } from '../data/standardDay.js';
 import { setSyncIdle } from '../ui/topbar.js';
 import { toast } from '../ui/toast.js';
 
@@ -32,7 +33,34 @@ export function initEntryModal(state, onAfterSave) {
     updateComputedHours();
   };
 
-  document.getElementById('eDate').addEventListener('change', updateComputedHours);
+  // Date change: reload the form for the newly selected date. If an entry
+  // already exists for that date, load it; otherwise reset to defaults for
+  // that day-of-week. Prevents Monday's draft values from bleeding into
+  // Tuesday.
+  document.getElementById('eDate').addEventListener('change', () => {
+    const newDate = document.getElementById('eDate').value;
+    if (!newDate) return;
+    editingDate = newDate;
+    loadFormForDate(newDate);
+    document.getElementById('btnDeleteEntry').style.display =
+      stateRef.entries[newDate] ? 'inline-flex' : 'none';
+    renderSegments();
+    updateComputedHours();
+  });
+
+  // Time-off selection: any code clears segments (implied hours come from
+  // the type via computeHours). Clearing the code restores DOW defaults.
+  document.getElementById('eTimeOff').addEventListener('change', (ev) => {
+    if (ev.target.value) {
+      modalSegments = [];
+    } else {
+      const date = document.getElementById('eDate').value || fmtDate(new Date());
+      modalSegments = defaultSegmentsForDate(date);
+    }
+    renderSegments();
+    updateComputedHours();
+  });
+
   document.getElementById('btnCancelEntry').onclick = closeEntryModal;
   document.getElementById('btnSaveEntry').onclick = saveEntry;
   document.getElementById('btnDeleteEntry').onclick = deleteEntry;
@@ -41,20 +69,55 @@ export function initEntryModal(state, onAfterSave) {
   };
 }
 
+/**
+ * Default segments for a brand-new entry on the given date.
+ *
+ * Weekday (Mon-Fri): one segment from the user's Standard Day (seg1Start
+ * to seg1End), break taken by default.
+ * Weekend (Sat/Sun): one segment 07:00 to 12:00, no break.
+ */
+function defaultSegmentsForDate(date) {
+  const dow = parseDate(date).getDay();
+  if (dow === 0 || dow === 6) {
+    return [{ clockIn: '07:00', clockOut: '12:00', breakTaken: false }];
+  }
+  const sd = resolveStandardDay(stateRef.settings);
+  return [{
+    clockIn: padHM(sd.seg1Start),
+    clockOut: padHM(sd.seg1End),
+    breakTaken: true,
+  }];
+}
+
+/**
+ * Populate modalSegments + the time-off and notes fields for the given
+ * date. Loads an existing entry if there is one; otherwise applies the
+ * day-of-week defaults.
+ */
+function loadFormForDate(date) {
+  const existing = stateRef.entries[date];
+  if (existing) {
+    const segs = entrySegments(existing);
+    modalSegments = segs.length ? JSON.parse(JSON.stringify(segs)) : [];
+    document.getElementById('eTimeOff').value = existing.timeOff || '';
+    document.getElementById('eNotes').value = existing.notes || '';
+  } else {
+    modalSegments = defaultSegmentsForDate(date);
+    document.getElementById('eTimeOff').value = '';
+    document.getElementById('eNotes').value = '';
+  }
+}
+
 export function openEntryModal(date, state) {
   // (state may not be passed if caller has already done initEntryModal)
   if (state) stateRef = state;
   fillTimeOffSelect();
   editingDate = date;
-  const e = stateRef.entries[date] || { date };
   document.getElementById('entryModalTitle').textContent =
     stateRef.entries[date] ? 'Edit Entry' : 'New Entry';
   document.getElementById('eDate').value = date;
 
-  const existing = entrySegments(e);
-  modalSegments = existing.length ? JSON.parse(JSON.stringify(existing)) : [];
-  document.getElementById('eTimeOff').value = e.timeOff || '';
-  document.getElementById('eNotes').value = e.notes || '';
+  loadFormForDate(date);
   renderSegments();
   updateComputedHours();
 
@@ -161,9 +224,10 @@ function updateComputedHours() {
   const tmp = {
     date: document.getElementById('eDate').value,
     segments: modalSegments,
+    timeOff: document.getElementById('eTimeOff').value || null,
   };
   document.getElementById('eComputedHours').textContent =
-    computeHours(tmp, stateRef.settings).toFixed(2);
+    computeHours(tmp, stateRef.settings, stateRef.timeOffTypes).toFixed(2);
 }
 
 async function saveEntry() {

@@ -73,7 +73,7 @@ function pullHoursFromLog() {
   const inPP = Object.values(stateRef.entries).filter(e =>
     e.date >= pp.start && e.date <= pp.end
     && (!e.timeOff || e.timeOff === 'HOLIDAY'));
-  const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings), 0);
+  const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings, stateRef.timeOffTypes), 0);
   document.getElementById('pHours').value = hrs.toFixed(2);
   toast(`Pulled ${hrs.toFixed(2)} h from ${pp.start} → ${pp.end}`);
 }

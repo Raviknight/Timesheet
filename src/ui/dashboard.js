@@ -40,10 +40,9 @@ export function renderDashboard(state) {
   let ppTimeOff = 0;
 
   for (const e of inPP) {
-    const h = computeHours(e, state.settings);
+    const h = computeHours(e, state.settings, state.timeOffTypes);
     if (e.timeOff && e.timeOff !== 'HOLIDAY') {
-      const tt = state.timeOffTypes.find(t => t.code === e.timeOff);
-      ppTimeOff += h || (tt?.hoursPerDay || 8);
+      ppTimeOff += h;
     } else {
       ppTotal += h;
     }
@@ -53,7 +52,7 @@ export function renderDashboard(state) {
   for (const w of weeks) {
     const wk = inPP.filter(e => e.date >= w.start && e.date <= w.end
       && (!e.timeOff || e.timeOff === 'HOLIDAY'));
-    const wkHours = wk.reduce((s, e) => s + computeHours(e, state.settings), 0);
+    const wkHours = wk.reduce((s, e) => s + computeHours(e, state.settings, state.timeOffTypes), 0);
     if (wkHours > otThreshold) {
       ppRegular += otThreshold;
       ppOT += wkHours - otThreshold;
@@ -95,11 +94,10 @@ function renderWeekCard(week, state) {
     + '<th class="num">Hrs</th><th>Off</th></tr></thead><tbody>';
 
   for (const dd of days) {
-    const h = dd.empty ? 0 : computeHours(dd, state.settings);
+    const h = dd.empty ? 0 : computeHours(dd, state.settings, state.timeOffTypes);
     const isTimeOff = dd.timeOff && dd.timeOff !== 'HOLIDAY';
     if (isTimeOff) {
-      const tt = state.timeOffTypes.find(t => t.code === dd.timeOff);
-      timeOff += h || (tt?.hoursPerDay || 8);
+      timeOff += h;
     } else {
       total += h;
     }
@@ -144,7 +142,7 @@ function renderBalances(state) {
 
   for (const t of state.timeOffTypes) {
     if (!t.countsAgainstPool) {
-      const usedHours = sumHoursForCode(entries, t.code, 'all', t.hoursPerDay, state.settings);
+      const usedHours = sumHoursForCode(entries, t.code, 'all', state.settings, state.timeOffTypes);
       const usedDays = countDaysForCode(entries, t.code, 'all');
       html += `<div style="margin-bottom:12px">
         <div class="row" style="justify-content:space-between">
@@ -190,7 +188,7 @@ function renderBalances(state) {
     if (b.breakdownTypes.length > 1) {
       html += '<div class="help" style="margin-top:6px">';
       for (const bt of b.breakdownTypes) {
-        const u = sumHoursForCode(entries, bt.code, 'all', bt.hoursPerDay, state.settings);
+        const u = sumHoursForCode(entries, bt.code, 'all', state.settings, state.timeOffTypes);
         html += `<span class="badge" style="margin-right:6px">${escapeHtml(bt.label)}: ${u.toFixed(1)} h</span>`;
       }
       html += '</div>';

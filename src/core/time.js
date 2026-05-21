@@ -92,14 +92,36 @@ export function computeSegmentHours(seg, date, settings) {
   return Math.max(0, gross / 60);
 }
 
-/** Hours for a whole day (sum of all segments). */
-export function computeHours(entry, settings) {
+/**
+ * Hours for a whole day.
+ *
+ * Resolution rules (segments win when both are present):
+ *   1. Segments present: sum of segment hours.
+ *   2. No segments but entry.timeOff set: the type's hoursPerDay, or 8 if
+ *      the type is not found or hoursPerDay is missing.
+ *   3. Otherwise: 0.
+ *
+ * @param {object}   entry
+ * @param {object}   settings
+ * @param {object[]} [timeOffTypes]  state.timeOffTypes; needed to resolve
+ *                                   implied hours for time-off-only entries
+ */
+export function computeHours(entry, settings, timeOffTypes) {
   if (!entry) return 0;
   const segs = entrySegments(entry);
-  if (segs.length === 0) return 0;
-  let total = 0;
-  for (const seg of segs) {
-    total += computeSegmentHours(seg, entry.date, settings);
+  if (segs.length > 0) {
+    let total = 0;
+    for (const seg of segs) {
+      total += computeSegmentHours(seg, entry.date, settings);
+    }
+    return total;
   }
-  return total;
+  if (entry.timeOff) {
+    if (Array.isArray(timeOffTypes)) {
+      const t = timeOffTypes.find(x => x.code === entry.timeOff);
+      return t?.hoursPerDay ?? 8;
+    }
+    return 8;
+  }
+  return 0;
 }

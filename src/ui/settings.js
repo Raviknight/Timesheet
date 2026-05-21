@@ -468,7 +468,7 @@ export function wireSettings(state, { saveAll }) {
     const breakMin = state.settings.breakMinutes || 0;
     for (const e of sorted) {
       const segs = entrySegments(e);
-      const dayTotal = computeHours(e, state.settings).toFixed(2);
+      const dayTotal = computeHours(e, state.settings, state.timeOffTypes).toFixed(2);
       if (segs.length === 0) {
         rows.push([e.date, dayShort(e.date), '', '', '', '', '',
           dayTotal, e.timeOff || '', (e.notes || '').replace(/"/g, '""')]);
