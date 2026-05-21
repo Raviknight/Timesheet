@@ -192,6 +192,7 @@ export const RemoteStore = {
             countsAgainstPool: t.counts_against_pool,
             sharedPoolWith: t.shared_pool_with,
             unpaid: t.unpaid,
+            additive: t.additive,
           };
           if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
             obj.poolByYear = t.pool_by_year;
@@ -644,6 +645,7 @@ export const RemoteStore = {
             counts_against_pool: !!t.countsAgainstPool,
             shared_pool_with: t.sharedPoolWith || null,
             unpaid: !!t.unpaid,
+            additive: !!t.additive,
             pool_by_year: t.poolByYear || {},
           };
         }
@@ -685,6 +687,7 @@ export const RemoteStore = {
               counts_against_pool: row.counts_against_pool,
               shared_pool_with: row.shared_pool_with,
               unpaid: row.unpaid,
+              additive: row.additive,
               pool_by_year: row.pool_by_year,
             })
             .eq('company_id', row.company_id)
@@ -721,6 +724,7 @@ export const RemoteStore = {
             countsAgainstPool: t.counts_against_pool,
             sharedPoolWith: t.shared_pool_with,
             unpaid: t.unpaid,
+            additive: t.additive,
           };
           if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
             obj.poolByYear = t.pool_by_year;

@@ -111,11 +111,12 @@ export function computeHoursWorked(entry, settings) {
 /**
  * Paid hours for a day.
  *
- * Resolution rules (segments win when both are present):
- *   1. Segments present: sum of segment hours.
- *   2. No segments but entry.timeOff set: the type's hoursPerDay, or 8 if
- *      the type is not found or hoursPerDay is missing.
- *   3. Otherwise: 0.
+ * Resolution rules:
+ *   - Worked-only day: sum of segment hours.
+ *   - Time-off type is additive (e.g. HOLIDAY): segment hours + the type's
+ *     hoursPerDay. The holiday pay sits on top of any work done that day.
+ *   - Time-off type is non-additive (PTO/SICK/UNPAID): segments win when
+ *     present; otherwise the type's hoursPerDay (8 fallback).
  *
  * Use this for totals, balances, and any display that means "hours the
  * user gets paid for", including pure time-off days.
@@ -123,20 +124,25 @@ export function computeHoursWorked(entry, settings) {
  * @param {object}   entry
  * @param {object}   settings
  * @param {object[]} [timeOffTypes]  state.timeOffTypes; needed to resolve
- *                                   implied hours for time-off-only entries
+ *                                   implied hours and additive flag for
+ *                                   time-off entries
  */
 export function computeHoursPaid(entry, settings, timeOffTypes) {
   if (!entry) return 0;
-  const worked = computeHoursWorked(entry, settings);
-  if (worked > 0) return worked;
-  if (entry.timeOff) {
-    if (Array.isArray(timeOffTypes)) {
-      const t = timeOffTypes.find(x => x.code === entry.timeOff);
-      return t?.hoursPerDay ?? 8;
+  const segHrs = computeHoursWorked(entry, settings);
+  if (!entry.timeOff) return segHrs;
+
+  let timeOffHrs = 8;
+  let additive = false;
+  if (Array.isArray(timeOffTypes)) {
+    const t = timeOffTypes.find(x => x.code === entry.timeOff);
+    if (t) {
+      timeOffHrs = t.hoursPerDay ?? 8;
+      additive = !!t.additive;
     }
-    return 8;
   }
-  return 0;
+  if (additive) return segHrs + timeOffHrs;
+  return segHrs > 0 ? segHrs : timeOffHrs;
 }
 
 /**

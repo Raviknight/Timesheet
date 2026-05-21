@@ -66,10 +66,10 @@ export const DEFAULT_SETTINGS = {
  *   }
  */
 export const DEFAULT_TIME_OFF_TYPES = [
-  { code: 'PTO',     label: 'PTO',     poolDays: 11, countsAgainstPool: true,  hoursPerDay: 8 },
-  { code: 'SICK',    label: 'Sick',    poolDays: 0,  countsAgainstPool: true,  hoursPerDay: 8, sharedPoolWith: 'PTO' },
-  { code: 'HOLIDAY', label: 'Holiday', poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8 },
-  { code: 'UNPAID',  label: 'Unpaid',  poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8, unpaid: true },
+  { code: 'PTO',     label: 'PTO',     poolDays: 11, countsAgainstPool: true,  hoursPerDay: 8, additive: false },
+  { code: 'SICK',    label: 'Sick',    poolDays: 0,  countsAgainstPool: true,  hoursPerDay: 8, additive: false, sharedPoolWith: 'PTO' },
+  { code: 'HOLIDAY', label: 'Holiday', poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8, additive: true },
+  { code: 'UNPAID',  label: 'Unpaid',  poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8, additive: false, unpaid: true },
 ];
 
 /**

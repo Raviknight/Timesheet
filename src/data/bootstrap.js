@@ -96,6 +96,7 @@ export async function bootstrapNewUser(userId, email) {
     counts_against_pool: t.countsAgainstPool || false,
     shared_pool_with: t.sharedPoolWith || null,
     unpaid: t.unpaid || false,
+    additive: t.additive || false,
   }));
   const { error: typesError } = await supabase
     .from('time_off_types')

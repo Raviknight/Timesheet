@@ -99,7 +99,7 @@ function renderWeekCard(week, state) {
     const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, state.timeOffTypes);
     if (dd.timeOff === 'HOLIDAY') {
       worked += workedH;
-      if (workedH === 0) holiday += paidH;
+      holiday += paidH - workedH;
     } else if (dd.timeOff) {
       timeOff += paidH;
     } else {

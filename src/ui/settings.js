@@ -216,6 +216,11 @@ function renderTOTypes(state) {
             <option value="true" ${t.countsAgainstPool ? 'selected' : ''}>Yes</option>
             <option value="false" ${!t.countsAgainstPool ? 'selected' : ''}>No</option>
           </select></div>
+        <div style="flex:0 0 130px"><label title="Pays in addition to worked hours">Additive</label>
+          <select data-i="${i}" data-f="additive">
+            <option value="true" ${t.additive ? 'selected' : ''}>Yes</option>
+            <option value="false" ${!t.additive ? 'selected' : ''}>No</option>
+          </select></div>
         <div class="grow"><label>Shares pool with</label>
           <select data-i="${i}" data-f="sharedPoolWith">
             <option value="">— None —</option>
@@ -238,7 +243,7 @@ function renderTOTypes(state) {
       const f = inp.dataset.f;
       let v = inp.value;
       if (f === 'poolDays' || f === 'hoursPerDay') v = +v;
-      else if (f === 'countsAgainstPool') v = v === 'true';
+      else if (f === 'countsAgainstPool' || f === 'additive') v = v === 'true';
       state.timeOffTypes[i][f] = v;
       saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
     };
@@ -419,7 +424,7 @@ export function wireSettings(state, { saveAll }) {
   document.getElementById('btnAddTOType').onclick = () => {
     state.timeOffTypes.push({
       code: 'NEW', label: 'New Type',
-      poolDays: 0, hoursPerDay: 8, countsAgainstPool: false,
+      poolDays: 0, hoursPerDay: 8, countsAgainstPool: false, additive: false,
     });
     saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
     renderTOTypes(state);
