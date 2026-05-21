@@ -33,18 +33,25 @@ export function renderDashboard(state) {
     wkContainer.appendChild(renderWeekCard(w, state));
   }
 
-  // Totals
-  let ppTotal = 0;
+  // Totals. Mirrors the per-week card buckets so they reconcile:
+  //   - HOLIDAY day: workedH counts toward Regular/OT; additive bonus
+  //     (paidH - workedH) counts toward Holiday.
+  //   - Non-HOLIDAY time-off: paidH counts toward Time off.
+  //   - Worked-only day: workedH counts toward Regular/OT.
+  // Total is the sum across all buckets — equivalent to summing
+  // computeHoursPaid over the period.
   let ppRegular = 0;
   let ppOT = 0;
+  let ppHoliday = 0;
   let ppTimeOff = 0;
 
   for (const e of inPP) {
-    const h = computeHoursPaid(e, state.settings, state.timeOffTypes);
-    if (e.timeOff && e.timeOff !== 'HOLIDAY') {
-      ppTimeOff += h;
-    } else {
-      ppTotal += h;
+    if (e.timeOff === 'HOLIDAY') {
+      const workedH = computeHoursWorked(e, state.settings);
+      const paidH = computeHoursPaid(e, state.settings, state.timeOffTypes);
+      ppHoliday += paidH - workedH;
+    } else if (e.timeOff) {
+      ppTimeOff += computeHoursPaid(e, state.settings, state.timeOffTypes);
     }
   }
 
@@ -60,6 +67,8 @@ export function renderDashboard(state) {
       ppRegular += wkWorked;
     }
   }
+
+  const ppTotal = ppRegular + ppOT + ppHoliday + ppTimeOff;
 
   document.getElementById('ppTotal').textContent = ppTotal.toFixed(2);
   document.getElementById('ppRegular').textContent = ppRegular.toFixed(2);

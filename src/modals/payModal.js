@@ -70,9 +70,14 @@ function pullHoursFromLog() {
   if (!payDate) { toast('Pick a pay date first'); return; }
   // Pay date is usually a few days after period end; back off a bit
   const pp = getPayPeriodFor('other', addDays(payDate, -3), stateRef.settings);
-  const inPP = Object.values(stateRef.entries).filter(e =>
-    e.date >= pp.start && e.date <= pp.end
-    && (!e.timeOff || e.timeOff === 'HOLIDAY'));
+  // Pull paid hours from every entry in the period, excluding only types
+  // flagged as unpaid (which the user isn't paid for).
+  const inPP = Object.values(stateRef.entries).filter(e => {
+    if (e.date < pp.start || e.date > pp.end) return false;
+    if (!e.timeOff) return true;
+    const type = stateRef.timeOffTypes.find(t => t.code === e.timeOff);
+    return !type || type.unpaid !== true;
+  });
   const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings, stateRef.timeOffTypes), 0);
   document.getElementById('pHours').value = hrs.toFixed(2);
   toast(`Pulled ${hrs.toFixed(2)} h from ${pp.start} → ${pp.end}`);
