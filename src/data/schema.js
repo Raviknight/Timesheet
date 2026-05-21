@@ -161,13 +161,13 @@ export function migrateCompanies(companies, settings) {
   const s = settings || {};
   return companies.map(c => ({
     ...c,
-    payFrequency:       c.payFrequency       ?? s.system        ?? 'biweekly',
-    weekStartDow:       c.weekStartDow       ?? s.startDow      ?? 1,
-    biweeklyRefDate:    c.biweeklyRefDate    ?? s.biweeklyRef   ?? null,
-    semiFirstDay:       c.semiFirstDay       ?? s.semi1         ?? null,
-    semiSecondDay:      c.semiSecondDay      ?? s.semi2         ?? null,
-    monthlyStartDay:    c.monthlyStartDay    ?? s.monthlyStart  ?? null,
-    advancedAnchorDate: c.advancedAnchorDate ?? s.anchorDate    ?? null,
-    advancedCycleDays:  c.advancedCycleDays  ?? s.cycleDays     ?? null,
+    payFrequency:        c.payFrequency        ?? s.system        ?? 'biweekly',
+    weekStartDow:        c.weekStartDow        ?? s.startDow      ?? 1,
+    biweeklyStartParity: c.biweeklyStartParity ?? 'odd',
+    semiFirstDay:        c.semiFirstDay        ?? s.semi1         ?? null,
+    semiSecondDay:       c.semiSecondDay       ?? s.semi2         ?? null,
+    monthlyStartDay:     c.monthlyStartDay     ?? s.monthlyStart  ?? null,
+    advancedAnchorDate:  c.advancedAnchorDate  ?? s.anchorDate    ?? null,
+    advancedCycleDays:   c.advancedCycleDays   ?? s.cycleDays     ?? null,
   }));
 }

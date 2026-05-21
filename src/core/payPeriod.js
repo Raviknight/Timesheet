@@ -107,6 +107,15 @@ function clamp(n, lo, hi) {
   return n;
 }
 
+// Continuous integer index of the ISO Monday-anchored week containing the
+// given date (which should itself fall on a Monday — callers pass thisMonday).
+// 1970-01-05 is a Monday, calibrated to weekIndex 0. Parity of this index
+// (even/odd) is what biweekly periods anchor to.
+const MONDAY_EPOCH = '1970-01-05';
+function weekIndex(dateString) {
+  return Math.floor(diffDays(dateString, MONDAY_EPOCH) / 7);
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -116,7 +125,8 @@ function clamp(n, lo, hi) {
  *
  * @param {string} dateString  "YYYY-MM-DD"
  * @param {object} company     fields from the v3 companies row:
- *                             payFrequency, weekStartDow, biweeklyRefDate,
+ *                             payFrequency, weekStartDow,
+ *                             biweeklyStartParity ('odd' | 'even'),
  *                             semiFirstDay, semiSecondDay, monthlyStartDay,
  *                             advancedAnchorDate, advancedCycleDays
  * @returns {{ start: string, end: string }}  inclusive on both ends
@@ -133,13 +143,21 @@ export function getPayPeriodForDate(dateString, company) {
   }
 
   if (freq === 'biweekly') {
-    const anchor = company.biweeklyRefDate;
-    if (!anchor) {
-      throw new Error('biweekly company is missing biweeklyRefDate');
-    }
-    const diff = diffDays(dateString, anchor);
-    const offset = ((diff % 14) + 14) % 14;
-    const start = addDays(dateString, -offset);
+    // Parity model: every Monday on the global calendar has a continuous
+    // index. Companies anchor their biweekly cycle to either odd-indexed
+    // or even-indexed Mondays. Each new company picks one; no per-company
+    // anchor date is needed, and the model has no DST sensitivity at all.
+    const parity = company.biweeklyStartParity || 'odd';
+    const wantOdd = parity === 'odd';
+
+    const dow = dayOfWeek(dateString);          // 0=Sun ... 6=Sat
+    const daysFromMon = (dow + 6) % 7;           // 0 on Mon, 6 on Sun
+    const thisMonday = addDays(dateString, -daysFromMon);
+
+    const thisIsOdd = (weekIndex(thisMonday) % 2) === 1;
+    const weeksBack = thisIsOdd === wantOdd ? 0 : 1;
+
+    const start = addDays(thisMonday, -7 * weeksBack);
     const end = addDays(start, 13);
     return { start, end };
   }

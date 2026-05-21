@@ -34,7 +34,7 @@ const fullRow = {
   name: 'Ferry',
   pay_frequency: 'biweekly',
   week_start_dow: 1,
-  biweekly_ref_date: '2025-12-28',
+  biweekly_start_parity: 'odd',
   semi_first_day: null,
   semi_second_day: null,
   monthly_start_day: null,
@@ -50,7 +50,7 @@ eq(
     name: 'Ferry',
     payFrequency: 'biweekly',
     weekStartDow: 1,
-    biweeklyRefDate: '2025-12-28',
+    biweeklyStartParity: 'odd',
     semiFirstDay: null,
     semiSecondDay: null,
     monthlyStartDay: null,
@@ -73,7 +73,7 @@ eq(
     name: 'Legacy',
     payFrequency: null,
     weekStartDow: null,
-    biweeklyRefDate: null,
+    biweeklyStartParity: null,
     semiFirstDay: null,
     semiSecondDay: null,
     monthlyStartDay: null,
@@ -92,7 +92,7 @@ const phillipsOld = companyRowToAppShape({
   name: 'Phillips Precision',
   pay_frequency: 'biweekly',
   week_start_dow: 1,
-  biweekly_ref_date: '2025-12-28',
+  biweekly_start_parity: 'even',
   semi_first_day: null,
   semi_second_day: null,
   monthly_start_day: null,
@@ -116,11 +116,11 @@ eq(
   { name: 'Ferry Machines' }
 );
 
-const ferryMulti = { ...ferryOld, weekStartDow: 0, biweeklyRefDate: '2026-01-04' };
+const ferryMulti = { ...ferryOld, weekStartDow: 0, biweeklyStartParity: 'even' };
 eq(
   'diff: multiple changes → patch with all changed keys',
   diffCompanyForUpdate(ferryMulti, ferryOld),
-  { week_start_dow: 0, biweekly_ref_date: '2026-01-04' }
+  { week_start_dow: 0, biweekly_start_parity: 'even' }
 );
 
 // ---------------------------------------------------------------------------
@@ -187,14 +187,14 @@ const v2Companies = [
 const migrated = migrateCompanies(v2Companies, v2Settings);
 
 eq(
-  'migrate: empty company gets all defaults from settings',
+  'migrate: empty company gets all defaults from settings + odd parity',
   migrated[0],
   {
     id: 'x',
     name: 'X',
     payFrequency: 'biweekly',
     weekStartDow: 1,
-    biweeklyRefDate: '2025-12-28',
+    biweeklyStartParity: 'odd',
     semiFirstDay: 1,
     semiSecondDay: 16,
     monthlyStartDay: 1,

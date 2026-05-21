@@ -26,7 +26,8 @@ create table companies (
   pay_frequency text not null default 'biweekly'
     check (pay_frequency in ('weekly','biweekly','semimonthly','monthly','advanced')),
   week_start_dow smallint not null default 1,   -- 0=Sun..6=Sat; 1=Monday
-  biweekly_ref_date date,                       -- biweekly only
+  biweekly_start_parity text                    -- biweekly only: 'odd' | 'even'
+    check (biweekly_start_parity in ('odd','even')),
   semi_first_day smallint,                      -- semimonthly only (1..28)
   semi_second_day smallint,                     -- semimonthly only (1..28)
   monthly_start_day smallint,                   -- monthly only (1..28)

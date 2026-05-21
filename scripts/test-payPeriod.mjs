@@ -28,48 +28,82 @@ function eq(label, actual, expected) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: biweekly across the DST window
-// Anchor 2025-12-28 is a Sunday. Every period start should also be a Sunday.
+// Test 1: biweekly via parity. Ferry='odd', Phillips='even'.
+// Period starts always land on a Monday whose continuous week-index
+// matches the company's parity. No DST sensitivity, no anchor date.
 // ---------------------------------------------------------------------------
 
-const bi = {
+const ferry = {
   payFrequency: 'biweekly',
   weekStartDow: 1,
-  biweeklyRefDate: '2025-12-28',
+  biweeklyStartParity: 'odd',
 };
 
-eq('biweekly: anchor date itself',
-  getPayPeriodForDate('2025-12-28', bi),
-  { start: '2025-12-28', end: '2026-01-10' });
+eq('biweekly Ferry: today (Thu, mid-period)',
+  getPayPeriodForDate('2026-05-21', ferry),
+  { start: '2026-05-18', end: '2026-05-31' });
 
-eq('biweekly: one day after anchor',
-  getPayPeriodForDate('2025-12-29', bi),
-  { start: '2025-12-28', end: '2026-01-10' });
+eq('biweekly Ferry: Sunday end of period',
+  getPayPeriodForDate('2026-05-17', ferry),
+  { start: '2026-05-04', end: '2026-05-17' });
 
-eq('biweekly: last day of first period',
-  getPayPeriodForDate('2026-01-10', bi),
-  { start: '2025-12-28', end: '2026-01-10' });
+eq('biweekly Ferry: Monday at period start',
+  getPayPeriodForDate('2026-05-04', ferry),
+  { start: '2026-05-04', end: '2026-05-17' });
 
-eq('biweekly: first day of second period',
-  getPayPeriodForDate('2026-01-11', bi),
-  { start: '2026-01-11', end: '2026-01-24' });
+eq('biweekly Ferry: Mon of ISO week 1, 2026',
+  getPayPeriodForDate('2025-12-29', ferry),
+  { start: '2025-12-29', end: '2026-01-11' });
 
-eq('biweekly: across spring DST (start)',
-  getPayPeriodForDate('2026-03-08', bi),
-  { start: '2026-03-08', end: '2026-03-21' });
+eq('biweekly Ferry: across spring DST (Mon period start)',
+  getPayPeriodForDate('2026-03-09', ferry),
+  { start: '2026-03-09', end: '2026-03-22' });
 
-eq('biweekly: across spring DST (mid)',
-  getPayPeriodForDate('2026-03-09', bi),
-  { start: '2026-03-08', end: '2026-03-21' });
+eq('biweekly Ferry: Mon week before spring DST',
+  getPayPeriodForDate('2026-03-02', ferry),
+  { start: '2026-02-23', end: '2026-03-08' });
 
-// Note: the spec listed 2026-05-18/2026-05-31 here, but with a Sunday
-// anchor of 2025-12-28 and a 14-day cycle, period starts land on Sundays:
-//   ..., 2026-05-03, 2026-05-17, 2026-05-31.
-// 2026-05-21 (Thu) falls inside 2026-05-17 → 2026-05-30. The spec value
-// would have implied a Monday anchor, which contradicts 2025-12-28.
-eq('biweekly: today (post-spring-DST, Sunday-anchored)',
-  getPayPeriodForDate('2026-05-21', bi),
-  { start: '2026-05-17', end: '2026-05-30' });
+eq('biweekly Ferry: Mon of even-index week',
+  getPayPeriodForDate('2025-12-22', ferry),
+  { start: '2025-12-15', end: '2025-12-28' });
+
+// Year-end edge: same period straddles the year boundary.
+eq('biweekly Ferry: end-of-year period starts 2026-12-28',
+  getPayPeriodForDate('2026-12-28', ferry),
+  { start: '2026-12-28', end: '2027-01-10' });
+
+eq('biweekly Ferry: 2027-01-04 still in 2026-12-28 period',
+  getPayPeriodForDate('2027-01-04', ferry),
+  { start: '2026-12-28', end: '2027-01-10' });
+
+eq('biweekly Ferry: next period in 2027',
+  getPayPeriodForDate('2027-01-11', ferry),
+  { start: '2027-01-11', end: '2027-01-24' });
+
+// Phillips runs on the opposite parity → exactly one week off Ferry.
+const phillips = {
+  payFrequency: 'biweekly',
+  weekStartDow: 1,
+  biweeklyStartParity: 'even',
+};
+
+eq('biweekly Phillips: today (one week off Ferry)',
+  getPayPeriodForDate('2026-05-21', phillips),
+  { start: '2026-05-11', end: '2026-05-24' });
+
+eq('biweekly Phillips: Mon at period start',
+  getPayPeriodForDate('2026-05-11', phillips),
+  { start: '2026-05-11', end: '2026-05-24' });
+
+// Mid-period sanity for Ferry.
+eq('biweekly Ferry: 2026-05-25 stays in 2026-05-18 period',
+  getPayPeriodForDate('2026-05-25', ferry),
+  { start: '2026-05-18', end: '2026-05-31' });
+
+// Default-to-'odd' behavior when parity is missing.
+eq('biweekly: missing parity defaults to odd (same as Ferry)',
+  getPayPeriodForDate('2026-05-21', { payFrequency: 'biweekly' }),
+  { start: '2026-05-18', end: '2026-05-31' });
 
 // ---------------------------------------------------------------------------
 // Test 2: weekly

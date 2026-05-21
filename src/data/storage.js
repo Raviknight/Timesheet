@@ -122,7 +122,7 @@ export function companyRowToAppShape(row) {
     name: row.name,
     payFrequency: row.pay_frequency ?? null,
     weekStartDow: row.week_start_dow ?? null,
-    biweeklyRefDate: row.biweekly_ref_date ?? null,
+    biweeklyStartParity: row.biweekly_start_parity ?? null,
     semiFirstDay: row.semi_first_day ?? null,
     semiSecondDay: row.semi_second_day ?? null,
     monthlyStartDay: row.monthly_start_day ?? null,
@@ -134,15 +134,15 @@ export function companyRowToAppShape(row) {
 // Fields the write path is allowed to update on a companies row.
 // (id is the match key; created_at / owner_user_id are not touched.)
 const COMPANY_UPDATE_FIELDS = [
-  ['name',               'name'],
-  ['payFrequency',       'pay_frequency'],
-  ['weekStartDow',       'week_start_dow'],
-  ['biweeklyRefDate',    'biweekly_ref_date'],
-  ['semiFirstDay',       'semi_first_day'],
-  ['semiSecondDay',      'semi_second_day'],
-  ['monthlyStartDay',    'monthly_start_day'],
-  ['advancedAnchorDate', 'advanced_anchor_date'],
-  ['advancedCycleDays',  'advanced_cycle_days'],
+  ['name',                'name'],
+  ['payFrequency',        'pay_frequency'],
+  ['weekStartDow',        'week_start_dow'],
+  ['biweeklyStartParity', 'biweekly_start_parity'],
+  ['semiFirstDay',        'semi_first_day'],
+  ['semiSecondDay',       'semi_second_day'],
+  ['monthlyStartDay',     'monthly_start_day'],
+  ['advancedAnchorDate',  'advanced_anchor_date'],
+  ['advancedCycleDays',   'advanced_cycle_days'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,
@@ -204,7 +204,7 @@ export const RemoteStore = {
         const { data, error } = await supabase
           .from('companies')
           .select(
-            'id, name, pay_frequency, week_start_dow, biweekly_ref_date,' +
+            'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days'
           );
@@ -838,7 +838,7 @@ export const RemoteStore = {
         const { data: refreshed } = await supabase
           .from('companies')
           .select(
-            'id, name, pay_frequency, week_start_dow, biweekly_ref_date,' +
+            'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days'
           );
