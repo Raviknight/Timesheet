@@ -13,11 +13,25 @@
 
 -- Companies: each user gets one default company on signup (created by the
 -- app on first login, see PHASE_3_PLAN.md Step 5).
+--
+-- Pay-period columns added in Step 3e.1: each company now owns its own
+-- pay-period configuration. Nullable columns are only meaningful for the
+-- matching pay_frequency value; other frequencies should leave them null.
 create table companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   owner_user_id uuid references auth.users not null,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+
+  pay_frequency text not null default 'biweekly'
+    check (pay_frequency in ('weekly','biweekly','semimonthly','monthly','advanced')),
+  week_start_dow smallint not null default 1,   -- 0=Sun..6=Sat; 1=Monday
+  biweekly_ref_date date,                       -- biweekly only
+  semi_first_day smallint,                      -- semimonthly only (1..28)
+  semi_second_day smallint,                     -- semimonthly only (1..28)
+  monthly_start_day smallint,                   -- monthly only (1..28)
+  advanced_anchor_date date,                    -- advanced only
+  advanced_cycle_days smallint                  -- advanced only (>=1)
 );
 
 -- Profiles: 1-to-1 with auth.users.

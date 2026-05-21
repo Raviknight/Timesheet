@@ -13,7 +13,7 @@ import { Store } from '../data/storage.js';
 import { saveKey } from '../app.js';
 import {
   SK, SCHEMA_VERSION, DEFAULT_PROFILE, DEFAULT_SETTINGS,
-  DEFAULT_TIME_OFF_TYPES, migrateEntries,
+  DEFAULT_TIME_OFF_TYPES, migrateEntries, migrateCompanies,
 } from '../data/schema.js';
 import { getPayPeriodFor } from '../core/period.js';
 import { clampDom } from '../core/period.js';
@@ -511,7 +511,7 @@ export function wireSettings(state, { saveAll }) {
       if (data.profile) state.profile = data.profile;
       if (data.settings) state.settings = data.settings;
       if (data.timeOffTypes) state.timeOffTypes = data.timeOffTypes;
-      if (data.companies) state.companies = data.companies;
+      if (data.companies) state.companies = migrateCompanies(data.companies, state.settings);
       if (data.entries) state.entries = migrateEntries(data.entries);
       if (data.pays) state.pays = data.pays;
       await saveAll();

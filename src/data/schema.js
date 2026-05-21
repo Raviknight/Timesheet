@@ -12,7 +12,7 @@
  *   3. Test with a sample export from the previous version
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Storage keys. Always reference via SK.* — never hard-code strings. */
 export const SK = {
@@ -147,4 +147,27 @@ export function migrateEntries(entries) {
     out[k] = migrateEntry(entries[k]);
   }
   return out;
+}
+
+/**
+ * v2 → v3: pay-period configuration moved from user-level settings onto
+ * each company. For LocalStore-mode users (no Supabase), copy the
+ * existing settings fields onto every company that doesn't already carry
+ * them. Remote-mode rows get the same data via the SQL migration; this
+ * helper is also harmless on remote since it only fills `??` gaps.
+ */
+export function migrateCompanies(companies, settings) {
+  if (!Array.isArray(companies)) return companies;
+  const s = settings || {};
+  return companies.map(c => ({
+    ...c,
+    payFrequency:       c.payFrequency       ?? s.system        ?? 'biweekly',
+    weekStartDow:       c.weekStartDow       ?? s.startDow      ?? 1,
+    biweeklyRefDate:    c.biweeklyRefDate    ?? s.biweeklyRef   ?? null,
+    semiFirstDay:       c.semiFirstDay       ?? s.semi1         ?? null,
+    semiSecondDay:      c.semiSecondDay      ?? s.semi2         ?? null,
+    monthlyStartDay:    c.monthlyStartDay    ?? s.monthlyStart  ?? null,
+    advancedAnchorDate: c.advancedAnchorDate ?? s.anchorDate    ?? null,
+    advancedCycleDays:  c.advancedCycleDays  ?? s.cycleDays     ?? null,
+  }));
 }

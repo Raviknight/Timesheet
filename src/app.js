@@ -12,7 +12,7 @@ import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
-  migrateEntries,
+  migrateEntries, migrateCompanies,
 } from './data/schema.js';
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
 import { ensureBootstrapped } from './data/bootstrap.js';
@@ -197,7 +197,7 @@ async function loadAll() {
     delete state.settings.standard_day.breakMinutes;
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
-  state.companies = companies || [...SEED_COMPANIES];
+  state.companies = migrateCompanies(companies || [...SEED_COMPANIES], state.settings);
 
   if (entries) {
     state.entries = migrateEntries(entries);

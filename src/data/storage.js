@@ -112,6 +112,56 @@ export const LocalStore = {
 };
 
 // ===========================================================================
+// Companies: shared row↔app-shape mapping. Used by both the read and write
+// paths so the snake_case ↔ camelCase contract lives in one place.
+// ===========================================================================
+
+export function companyRowToAppShape(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    payFrequency: row.pay_frequency ?? null,
+    weekStartDow: row.week_start_dow ?? null,
+    biweeklyRefDate: row.biweekly_ref_date ?? null,
+    semiFirstDay: row.semi_first_day ?? null,
+    semiSecondDay: row.semi_second_day ?? null,
+    monthlyStartDay: row.monthly_start_day ?? null,
+    advancedAnchorDate: row.advanced_anchor_date ?? null,
+    advancedCycleDays: row.advanced_cycle_days ?? null,
+  };
+}
+
+// Fields the write path is allowed to update on a companies row.
+// (id is the match key; created_at / owner_user_id are not touched.)
+const COMPANY_UPDATE_FIELDS = [
+  ['name',               'name'],
+  ['payFrequency',       'pay_frequency'],
+  ['weekStartDow',       'week_start_dow'],
+  ['biweeklyRefDate',    'biweekly_ref_date'],
+  ['semiFirstDay',       'semi_first_day'],
+  ['semiSecondDay',      'semi_second_day'],
+  ['monthlyStartDay',    'monthly_start_day'],
+  ['advancedAnchorDate', 'advanced_anchor_date'],
+  ['advancedCycleDays',  'advanced_cycle_days'],
+];
+
+// Return a snake_case patch of fields that differ between newApp and oldApp,
+// or null if nothing changed.
+export function diffCompanyForUpdate(newApp, oldApp) {
+  const patch = {};
+  let changed = false;
+  for (const [appKey, dbKey] of COMPANY_UPDATE_FIELDS) {
+    const a = newApp[appKey] ?? null;
+    const b = oldApp[appKey] ?? null;
+    if (a !== b) {
+      patch[dbKey] = a;
+      changed = true;
+    }
+  }
+  return changed ? patch : null;
+}
+
+// ===========================================================================
 // RemoteStore — Supabase backed (stub in 5b.1, filled in 5b.2+)
 // ===========================================================================
 
@@ -153,13 +203,21 @@ export const RemoteStore = {
       if (key === 'ts:companies') {
         const { data, error } = await supabase
           .from('companies')
-          .select('id, name');
+          .select(
+            'id, name, pay_frequency, week_start_dow, biweekly_ref_date,' +
+            ' semi_first_day, semi_second_day, monthly_start_day,' +
+            ' advanced_anchor_date, advanced_cycle_days'
+          );
         if (error) {
           console.error('[storage] companies read failed:', error);
           return fallback;
         }
-        if (!data || data.length === 0) return fallback;
-        return data.map(c => ({ id: c.id, name: c.name }));
+        const out = (data || []).map(companyRowToAppShape);
+        writeCache['ts:companies'] = {
+          snapshot: JSON.parse(JSON.stringify(out)),
+        };
+        if (out.length === 0) return fallback;
+        return out;
       }
 
       if (key === 'ts:timeOffTypes') {
@@ -739,10 +797,59 @@ export const RemoteStore = {
         return true;
       }
 
-      // Skip writes for read-only or bootstrap-managed keys
-      if (key === 'ts:companies' || key === 'ts:schemaVersion') {
-        // No-op: these are managed by bootstrap, not client writes.
-        // 5c.4 may revisit this if companies editing is needed.
+      if (key === 'ts:companies') {
+        // Diff-tracked UPDATE only. Inserts/deletes are deferred to a
+        // later phase (companies are created by bootstrap; deletion is
+        // a destructive flow that needs its own UI + confirmation).
+        const cache = writeCache['ts:companies'];
+        if (!cache) {
+          console.error('[storage] companies write attempted without a load-time cache; refusing to write');
+          return false;
+        }
+        const oldSnap = cache.snapshot || [];
+        const newSnap = value || [];
+
+        const oldById = {};
+        for (const c of oldSnap) oldById[c.id] = c;
+
+        const updates = [];
+        for (const c of newSnap) {
+          const oldRow = oldById[c.id];
+          if (!oldRow) continue;  // new company — INSERT path not implemented here
+          const patch = diffCompanyForUpdate(c, oldRow);
+          if (patch) updates.push({ id: c.id, patch });
+        }
+
+        if (updates.length === 0) return true;
+
+        for (const u of updates) {
+          const { error: updateErr } = await supabase
+            .from('companies')
+            .update(u.patch)
+            .eq('id', u.id);
+          if (updateErr) {
+            console.error('[storage] companies update failed:', updateErr);
+            return false;
+          }
+        }
+
+        // Refresh the snapshot from server so subsequent diffs see the
+        // post-write baseline. Mirrors the entries/pays pattern.
+        const { data: refreshed } = await supabase
+          .from('companies')
+          .select(
+            'id, name, pay_frequency, week_start_dow, biweekly_ref_date,' +
+            ' semi_first_day, semi_second_day, monthly_start_day,' +
+            ' advanced_anchor_date, advanced_cycle_days'
+          );
+        writeCache['ts:companies'] = {
+          snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),
+        };
+        return true;
+      }
+
+      // Skip writes for read-only / server-enforced keys.
+      if (key === 'ts:schemaVersion') {
         return true;
       }
 
