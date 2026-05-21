@@ -8,14 +8,16 @@
  *   - Time-off pool balances (Taken / Scheduled / Remaining)
  */
 
-import { getPayPeriodFor, splitIntoWeeks } from '../core/period.js';
+import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
 import { computeHoursPaid, computeHoursWorked, entrySegments, dayShort, addDays } from '../core/time.js';
 import { escapeHtml, formatLong } from '../core/format.js';
 import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/balances.js';
 import { openEntryModal } from '../modals/entryModal.js';
+import { activeCompany } from '../data/activeCompany.js';
 
 export function renderDashboard(state) {
-  const pp = getPayPeriodFor(state.ui.ppMode, state.ui.ppOtherDate, state.settings);
+  const company = activeCompany(state);
+  const pp = getPayPeriodFor(state.ui.ppMode, state.ui.ppOtherDate, company);
   document.getElementById('ppRange').textContent =
     `${formatLong(pp.start)} — ${formatLong(pp.end)}`;
   document.getElementById('ppOtherPicker').style.display =
@@ -25,10 +27,16 @@ export function renderDashboard(state) {
     .filter(e => e.date >= pp.start && e.date <= pp.end);
   const otThreshold = state.settings.otThreshold || 40;
 
-  // Week breakdown
+  // Week breakdown. The legacy module gave us pre-labeled chunks; the new
+  // module returns raw {start, end} so we relabel here to keep the UI
+  // identical: a single chunk reads "Period", otherwise "Week N".
   const wkContainer = document.getElementById('weekBreakdown');
   wkContainer.innerHTML = '';
-  const weeks = splitIntoWeeks(pp.start, pp.end);
+  const weekStartDow = company.weekStartDow ?? 1;
+  const rawWeeks = splitPayPeriodIntoWeeks(pp.start, pp.end, weekStartDow);
+  const weeks = rawWeeks.length === 1
+    ? [{ ...rawWeeks[0], label: 'Period' }]
+    : rawWeeks.map((w, i) => ({ ...w, label: 'Week ' + (i + 1) }));
   for (const w of weeks) {
     wkContainer.appendChild(renderWeekCard(w, state));
   }

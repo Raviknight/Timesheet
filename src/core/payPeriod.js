@@ -225,6 +225,49 @@ export function getPayPeriodForDate(dateString, company) {
 }
 
 /**
+ * Compatibility wrapper used by the dashboard, settings preview, and pay
+ * modal. Matches the old period.js signature so call sites only have to
+ * swap settings for company.
+ *
+ * @param {'current'|'last'|'other'} mode
+ * @param {string|null} otherDateString  required when mode === 'other'
+ * @param {object} company               same shape as getPayPeriodForDate
+ * @returns {{ start: string, end: string }}
+ */
+export function getPayPeriodFor(mode, otherDateString, company) {
+  if (mode === 'current') {
+    return getPayPeriodForDate(todayISO(), company);
+  }
+  if (mode === 'last') {
+    const cur = getPayPeriodForDate(todayISO(), company);
+    const prevRef = addDays(cur.start, -1);
+    return getPayPeriodForDate(prevRef, company);
+  }
+  // 'other'
+  const ref = otherDateString || todayISO();
+  return getPayPeriodForDate(ref, company);
+}
+
+/**
+ * Inclusive day count of a period, computed via calendar-day arithmetic
+ * (DST-safe). Used by the settings preview that wants to display
+ * "(N days)" after the date range.
+ */
+export function periodLengthDays(start, end) {
+  return diffDays(end, start) + 1;
+}
+
+/**
+ * Today's local date as "YYYY-MM-DD". Reads `new Date()` once to extract
+ * the calendar Y/M/D — no day-math is done on Date objects, so DST cannot
+ * affect the result.
+ */
+function todayISO() {
+  const d = new Date();
+  return formatISODate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+/**
  * Split a pay period into week-sized chunks aligned to weekStartDow.
  * The first chunk starts at `start` (which may not be on a weekStartDow);
  * its end is the day before the next weekStartDow boundary. Subsequent

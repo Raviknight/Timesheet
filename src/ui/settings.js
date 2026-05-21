@@ -15,8 +15,9 @@ import {
   SK, SCHEMA_VERSION, DEFAULT_PROFILE, DEFAULT_SETTINGS,
   DEFAULT_TIME_OFF_TYPES, migrateEntries, migrateCompanies,
 } from '../data/schema.js';
-import { getPayPeriodFor } from '../core/period.js';
+import { getPayPeriodFor, periodLengthDays } from '../core/payPeriod.js';
 import { clampDom } from '../core/period.js';
+import { activeCompany } from '../data/activeCompany.js';
 import { escapeHtml, formatLong } from '../core/format.js';
 import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
@@ -128,24 +129,16 @@ function refreshPPSettingsUI(state) {
 }
 
 function refreshPPPreview(state) {
-  const sys = document.getElementById('setSystem').value;
-  const tmp = {
-    ...state.settings,
-    system: sys,
-    startDow: +document.getElementById('setStartDow').value,
-    biweeklyRef: document.getElementById('setBiweeklyRef').value
-      || state.settings.biweeklyRef || '2025-12-29',
-    semi1: clampDom(document.getElementById('setSemi1').value),
-    semi2: clampDom(document.getElementById('setSemi2').value),
-    monthlyStart: clampDom(document.getElementById('setMonthlyStart').value),
-    anchorDate: document.getElementById('setAnchor').value
-      || state.settings.anchorDate || '2025-12-29',
-    cycleDays: +document.getElementById('setCycleDays').value || 14,
-  };
+  // Per 3e.3: the preview reads from the active company, not the form.
+  // The Pay Period card's old inputs still bind to legacy settings keys
+  // that the new payPeriod module no longer consults; per-company form
+  // editing lands in 3e.5.
+  const company = activeCompany(state);
   try {
-    const pp = getPayPeriodFor('current', null, tmp);
+    const pp = getPayPeriodFor('current', null, company);
+    const days = periodLengthDays(pp.start, pp.end);
     document.getElementById('setPreview').textContent =
-      `${formatLong(pp.start)} → ${formatLong(pp.end)} (${pp.cycleDays} days)`;
+      `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
   } catch (err) {
     document.getElementById('setPreview').textContent =
       'Invalid configuration: ' + err.message;

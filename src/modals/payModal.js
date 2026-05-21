@@ -6,7 +6,8 @@
 
 import { SK } from '../data/schema.js';
 import { saveKey } from '../app.js';
-import { getPayPeriodFor } from '../core/period.js';
+import { getPayPeriodFor } from '../core/payPeriod.js';
+import { companyByName } from '../data/activeCompany.js';
 import { computeHours, fmtDate, addDays } from '../core/time.js';
 import { escapeHtml } from '../core/format.js';
 import { setSyncIdle } from '../ui/topbar.js';
@@ -68,8 +69,13 @@ function fillCompanySelect() {
 function pullHoursFromLog() {
   const payDate = document.getElementById('pDate').value;
   if (!payDate) { toast('Pick a pay date first'); return; }
+  // Resolve which company's pay-period schedule applies. The selected
+  // dropdown value is a name; companyByName falls back to the active
+  // company when the value is empty ("— Other —") or unknown.
+  const selectedName = document.getElementById('pCompany').value;
+  const company = companyByName(stateRef, selectedName);
   // Pay date is usually a few days after period end; back off a bit
-  const pp = getPayPeriodFor('other', addDays(payDate, -3), stateRef.settings);
+  const pp = getPayPeriodFor('other', addDays(payDate, -3), company);
   // Pull paid hours from every entry in the period, excluding only types
   // flagged as unpaid (which the user isn't paid for).
   const inPP = Object.values(stateRef.entries).filter(e => {
