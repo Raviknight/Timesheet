@@ -9,7 +9,7 @@
  */
 
 import { getPayPeriodFor, splitIntoWeeks } from '../core/period.js';
-import { computeHours, entrySegments, dayShort, addDays } from '../core/time.js';
+import { computeHoursPaid, computeHoursWorked, entrySegments, dayShort, addDays } from '../core/time.js';
 import { escapeHtml, formatLong } from '../core/format.js';
 import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/balances.js';
 import { openEntryModal } from '../modals/entryModal.js';
@@ -40,7 +40,7 @@ export function renderDashboard(state) {
   let ppTimeOff = 0;
 
   for (const e of inPP) {
-    const h = computeHours(e, state.settings, state.timeOffTypes);
+    const h = computeHoursPaid(e, state.settings, state.timeOffTypes);
     if (e.timeOff && e.timeOff !== 'HOLIDAY') {
       ppTimeOff += h;
     } else {
@@ -48,16 +48,16 @@ export function renderDashboard(state) {
     }
   }
 
-  // Regular vs OT per-week (holiday hours count as worked, OT applies)
+  // Regular vs OT per-week, computed on WORKED hours only. Holiday and
+  // PTO/SICK do not push the worked total over the OT threshold.
   for (const w of weeks) {
-    const wk = inPP.filter(e => e.date >= w.start && e.date <= w.end
-      && (!e.timeOff || e.timeOff === 'HOLIDAY'));
-    const wkHours = wk.reduce((s, e) => s + computeHours(e, state.settings, state.timeOffTypes), 0);
-    if (wkHours > otThreshold) {
+    const wk = inPP.filter(e => e.date >= w.start && e.date <= w.end);
+    const wkWorked = wk.reduce((s, e) => s + computeHoursWorked(e, state.settings), 0);
+    if (wkWorked > otThreshold) {
       ppRegular += otThreshold;
-      ppOT += wkHours - otThreshold;
+      ppOT += wkWorked - otThreshold;
     } else {
-      ppRegular += wkHours;
+      ppRegular += wkWorked;
     }
   }
 
@@ -86,7 +86,8 @@ function renderWeekCard(week, state) {
     d = addDays(d, 1);
   }
 
-  let total = 0;
+  let worked = 0;
+  let holiday = 0;
   let timeOff = 0;
   let html = `<div class="week-head"><h3>${week.label} ·
     <span class="muted">${formatLong(week.start)}</span></h3></div>`;
@@ -94,12 +95,15 @@ function renderWeekCard(week, state) {
     + '<th class="num">Hrs</th><th>Off</th></tr></thead><tbody>';
 
   for (const dd of days) {
-    const h = dd.empty ? 0 : computeHours(dd, state.settings, state.timeOffTypes);
-    const isTimeOff = dd.timeOff && dd.timeOff !== 'HOLIDAY';
-    if (isTimeOff) {
-      timeOff += h;
+    const workedH = dd.empty ? 0 : computeHoursWorked(dd, state.settings);
+    const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, state.timeOffTypes);
+    if (dd.timeOff === 'HOLIDAY') {
+      worked += workedH;
+      if (workedH === 0) holiday += paidH;
+    } else if (dd.timeOff) {
+      timeOff += paidH;
     } else {
-      total += h;
+      worked += workedH;
     }
     const pill = dd.timeOff
       ? `<span class="pill pill-${dd.timeOff.toLowerCase()}">${dd.timeOff}</span>`
@@ -112,19 +116,20 @@ function renderWeekCard(week, state) {
       <td>${dayShort(dd.date)} ${dd.date.slice(8, 10)}</td>
       <td>${firstIn}${segBadge}</td>
       <td>${lastOut}</td>
-      <td class="num">${h > 0 ? h.toFixed(2) : '—'}</td>
+      <td class="num">${paidH > 0 ? paidH.toFixed(2) : '—'}</td>
       <td>${pill}</td>
     </tr>`;
   }
   html += '</tbody></table>';
 
   const otThreshold = state.settings.otThreshold || 40;
-  const ot = Math.max(0, total - otThreshold);
-  const reg = Math.min(total, otThreshold);
+  const ot = Math.max(0, worked - otThreshold);
+  const reg = Math.min(worked, otThreshold);
   html += `<div class="week-totals">
-    <span>Total: <strong>${(total + timeOff).toFixed(2)}</strong></span>
+    <span>Total: <strong>${(worked + holiday + timeOff).toFixed(2)}</strong></span>
     <span>Regular: <strong>${reg.toFixed(2)}</strong></span>
     ${ot > 0 ? `<span>OT: <strong style="color:var(--success)">${ot.toFixed(2)}</strong></span>` : ''}
+    ${holiday > 0 ? `<span>Holiday: <strong>${holiday.toFixed(2)}</strong></span>` : ''}
     ${timeOff > 0 ? `<span>Time off: <strong>${timeOff.toFixed(2)}</strong></span>` : ''}
   </div>`;
 

@@ -93,7 +93,23 @@ export function computeSegmentHours(seg, date, settings) {
 }
 
 /**
- * Hours for a whole day.
+ * Worked hours for a day: sum of segment hours only. Ignores any time-off
+ * code. Use this for OT calculations and anything that means "time the
+ * user actually clocked in".
+ */
+export function computeHoursWorked(entry, settings) {
+  if (!entry) return 0;
+  const segs = entrySegments(entry);
+  if (segs.length === 0) return 0;
+  let total = 0;
+  for (const seg of segs) {
+    total += computeSegmentHours(seg, entry.date, settings);
+  }
+  return total;
+}
+
+/**
+ * Paid hours for a day.
  *
  * Resolution rules (segments win when both are present):
  *   1. Segments present: sum of segment hours.
@@ -101,21 +117,18 @@ export function computeSegmentHours(seg, date, settings) {
  *      the type is not found or hoursPerDay is missing.
  *   3. Otherwise: 0.
  *
+ * Use this for totals, balances, and any display that means "hours the
+ * user gets paid for", including pure time-off days.
+ *
  * @param {object}   entry
  * @param {object}   settings
  * @param {object[]} [timeOffTypes]  state.timeOffTypes; needed to resolve
  *                                   implied hours for time-off-only entries
  */
-export function computeHours(entry, settings, timeOffTypes) {
+export function computeHoursPaid(entry, settings, timeOffTypes) {
   if (!entry) return 0;
-  const segs = entrySegments(entry);
-  if (segs.length > 0) {
-    let total = 0;
-    for (const seg of segs) {
-      total += computeSegmentHours(seg, entry.date, settings);
-    }
-    return total;
-  }
+  const worked = computeHoursWorked(entry, settings);
+  if (worked > 0) return worked;
   if (entry.timeOff) {
     if (Array.isArray(timeOffTypes)) {
       const t = timeOffTypes.find(x => x.code === entry.timeOff);
@@ -124,4 +137,13 @@ export function computeHours(entry, settings, timeOffTypes) {
     return 8;
   }
   return 0;
+}
+
+/**
+ * Back-compat alias for computeHoursPaid. New code should prefer the
+ * explicit Worked / Paid variants so the intent is obvious at the call
+ * site.
+ */
+export function computeHours(entry, settings, timeOffTypes) {
+  return computeHoursPaid(entry, settings, timeOffTypes);
 }
