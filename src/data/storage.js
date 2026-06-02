@@ -128,6 +128,7 @@ export function companyRowToAppShape(row) {
     monthlyStartDay: row.monthly_start_day ?? null,
     advancedAnchorDate: row.advanced_anchor_date ?? null,
     advancedCycleDays: row.advanced_cycle_days ?? null,
+    isActive: row.is_active ?? null,
   };
 }
 
@@ -143,6 +144,7 @@ const COMPANY_UPDATE_FIELDS = [
   ['monthlyStartDay',     'monthly_start_day'],
   ['advancedAnchorDate',  'advanced_anchor_date'],
   ['advancedCycleDays',   'advanced_cycle_days'],
+  ['isActive',            'is_active'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,

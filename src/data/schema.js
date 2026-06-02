@@ -169,5 +169,6 @@ export function migrateCompanies(companies, settings) {
     monthlyStartDay:     c.monthlyStartDay     ?? s.monthlyStart  ?? null,
     advancedAnchorDate:  c.advancedAnchorDate  ?? s.anchorDate    ?? null,
     advancedCycleDays:   c.advancedCycleDays   ?? s.cycleDays     ?? null,
+    isActive:            c.isActive            ?? true,
   }));
 }
