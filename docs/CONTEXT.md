@@ -105,6 +105,33 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### June 2, 2026 — Companies table: three production-severity fixes
+
+Three issues diagnosed and fixed on the `companies` table:
+
+**1. Privacy leak (Step 5a debt).**
+The SELECT policy was `(true)` for all authenticated users, exposing every workspace name across the entire customer base. This was originally the Step 5a bootstrap debugging shortcut (see May 18 entry for the 42501 root cause that triggered the loosening) and was never tightened. Fixed by dropping the loose policy and adding an owner-based policy alongside the existing membership-based one:
+- `owner_user_id = auth.uid()` (owner-based, new)
+- `id in (select company_id from company_members where user_id = auth.uid())` (membership-based, existing)
+
+Postgres ORs permissive policies, so both apply without conflict. Resolves deferred item #3 from the May 22 handover.
+
+**2. Bootstrap breakage from RLS + RETURNING.**
+New user bootstrap via `.insert(...).select()` against companies was failing. Root cause: PostgREST adds an implicit RETURNING to the insert, which triggers a SELECT policy evaluation against the newly-inserted row before any matching `company_members` row exists. The membership-only SELECT policy denied that read. The owner-based policy from fix 1 uses a field set in the inserted row itself, so the check now passes immediately. Same fix resolved this as a side benefit.
+
+**3. Missing cascade behavior on FKs.**
+Auth user deletion was failing because two foreign keys lacked the right ON DELETE behavior:
+- `companies_owner_user_id_fkey` lacked `ON DELETE CASCADE`
+- `profiles_active_company_id_fkey` lacked `ON DELETE SET NULL`
+
+Both dropped and recreated with correct cascade.
+
+All three fixes verified end-to-end. SQL ran via the BEGIN/ROLLBACK dry-run pattern before commit.
+
+**Doc debt flagged but not addressed:** the "Current state" section above and `PHASE_3_PLAN.md` are both still May 18 vintage and do not reflect the May 22 work either. Capture in a separate doc-catchup session.
+
+**Key learning:** debug shortcuts ship as production debt by default. The permissive SELECT policy was logged as Phase 4 work in the May 18 audit, but went undetected for weeks as a real privacy leak until inspected directly. Future RLS shortcuts get tightened or reverted before the session closes.
+
 ### May 18, 2026 — Phase 3 Steps 5a, 5b, 5c.1 complete + Step 8 forward
 
 Massive session covering:
