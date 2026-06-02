@@ -30,6 +30,7 @@ import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay
 let pbyDraft = null;
 
 export function renderSettings(state) {
+  renderPerCompanyPayPeriod(state);
   const s = state.settings;
   setVal('setSystem', s.system || 'biweekly');
   setVal('setStartDow', s.startDow ?? 1);
@@ -143,6 +144,105 @@ function refreshPPPreview(state) {
     document.getElementById('setPreview').textContent =
       'Invalid configuration: ' + err.message;
   }
+}
+
+function renderPerCompanyPayPeriod(state) {
+  const list = document.getElementById('ppPerCompanyList');
+  if (!list) return;
+  if (!Array.isArray(state.companies) || state.companies.length === 0) {
+    list.innerHTML = '<div class="muted">No companies yet</div>';
+    return;
+  }
+
+  const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const FREQ_OPTIONS = [
+    ['weekly',      'Weekly'],
+    ['biweekly',    'Bi-weekly'],
+    ['semimonthly', 'Semi-monthly'],
+    ['monthly',     'Monthly'],
+    ['advanced',    'Advanced'],
+  ];
+
+  let html = '';
+  for (const c of state.companies) {
+    const freq = c.payFrequency || 'biweekly';
+    const wsd = c.weekStartDow ?? 1;
+
+    const freqHtml = FREQ_OPTIONS.map(([v, label]) =>
+      `<option value="${v}"${v === freq ? ' selected' : ''}>${label}</option>`
+    ).join('');
+    const dowHtml = DOW_LABELS.map((label, i) =>
+      `<option value="${i}"${i === wsd ? ' selected' : ''}>${label}</option>`
+    ).join('');
+
+    let extraHtml = '';
+    if (freq === 'biweekly') {
+      const parity = c.biweeklyStartParity || 'odd';
+      extraHtml = `
+        <div class="grow">
+          <label>Week parity</label>
+          <select data-pp-field="biweeklyStartParity">
+            <option value="odd"${parity === 'odd' ? ' selected' : ''}>Odd weeks</option>
+            <option value="even"${parity === 'even' ? ' selected' : ''}>Even weeks</option>
+          </select>
+        </div>`;
+    } else if (freq === 'semimonthly') {
+      extraHtml = `
+        <div class="grow">
+          <label>First day (1-15)</label>
+          <input type="number" min="1" max="15" data-pp-field="semiFirstDay" value="${c.semiFirstDay ?? 1}">
+        </div>
+        <div class="grow">
+          <label>Second day (16-31)</label>
+          <input type="number" min="16" max="31" data-pp-field="semiSecondDay" value="${c.semiSecondDay ?? 16}">
+        </div>`;
+    } else if (freq === 'monthly') {
+      extraHtml = `
+        <div class="grow">
+          <label>Anchor day (1-31)</label>
+          <input type="number" min="1" max="31" data-pp-field="monthlyStartDay" value="${c.monthlyStartDay ?? 1}">
+        </div>`;
+    } else if (freq === 'advanced') {
+      extraHtml = `
+        <div class="grow">
+          <label>Anchor date</label>
+          <input type="date" data-pp-field="advancedAnchorDate" value="${escapeHtml(c.advancedAnchorDate || '')}">
+        </div>
+        <div class="grow">
+          <label>Cycle days</label>
+          <input type="number" min="1" max="60" step="1" data-pp-field="advancedCycleDays" value="${c.advancedCycleDays ?? 14}">
+        </div>`;
+    }
+
+    let previewText;
+    try {
+      const pp = getPayPeriodFor('current', null, c);
+      const days = periodLengthDays(pp.start, pp.end);
+      previewText = `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
+    } catch (err) {
+      previewText = 'Invalid configuration: ' + err.message;
+    }
+
+    html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
+      <div style="font-weight:600; margin-bottom:6px">${escapeHtml(c.name)}</div>
+      <div class="row">
+        <div class="grow">
+          <label>Pay frequency</label>
+          <select data-pp-field="payFrequency">${freqHtml}</select>
+        </div>
+        <div class="grow">
+          <label>Week start day</label>
+          <select data-pp-field="weekStartDow">${dowHtml}</select>
+        </div>
+        ${extraHtml}
+      </div>
+      <div class="stat" style="margin-top:8px;background:var(--surface-2)">
+        <div class="stat-label">Current period preview</div>
+        <div style="font-size:14px;font-weight:500;margin-top:4px">${previewText}</div>
+      </div>
+    </div>`;
+  }
+  list.innerHTML = html;
 }
 
 function renderTOTypes(state) {
