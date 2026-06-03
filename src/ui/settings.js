@@ -44,6 +44,8 @@ export function renderSettings(state) {
   setVal('setCycleDays', s.cycleDays || 14);
   setVal('setOTThreshold', s.otThreshold);
   setVal('setBreakMin', s.breakMinutes);
+  setVal('setHoursOT', s.otThreshold);
+  setVal('setHoursBreak', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
   const sd = resolveStandardDay(s);
@@ -680,6 +682,14 @@ export function wireSettings(state, { saveAll }) {
     if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
     setSyncIdle();
     toast('Pay-period settings saved');
+  };
+
+  document.getElementById('btnSaveHours').onclick = async () => {
+    state.settings.otThreshold = parseFloat(document.getElementById('setHoursOT').value) || 40;
+    state.settings.breakMinutes = parseFloat(document.getElementById('setHoursBreak').value) || 0;
+    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
+    setSyncIdle();
+    toast('Hours settings saved');
   };
 
   document.getElementById('btnSaveProfile').onclick = async () => {
