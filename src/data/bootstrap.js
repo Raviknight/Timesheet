@@ -211,12 +211,20 @@ export async function deleteCompany(id) {
     console.error('deleteCompany: id is required');
     return false;
   }
-  const { error } = await supabase
+  // Request the deleted rows back so a zero-row delete (e.g. blocked by RLS)
+  // reports failure instead of a false success. The owner-based SELECT policy
+  // on companies covers the RETURNING for an owned company.
+  const { data, error } = await supabase
     .from('companies')
     .delete()
-    .eq('id', id);
+    .eq('id', id)
+    .select();
   if (error) {
     console.error('deleteCompany: delete failed', error);
+    return false;
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    console.error('deleteCompany: no rows deleted (possibly blocked by RLS)', id);
     return false;
   }
   return true;

@@ -24,6 +24,7 @@ import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
 import { createCompany, deleteCompany } from '../data/bootstrap.js';
+import { supabase } from '../data/supabase.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
@@ -484,13 +485,32 @@ function renderCompaniesList(state) {
       const idx = +b.dataset.del;
       const company = state.companies[idx];
       if (!company) return;
+      b.disabled = true;
+
+      // Block hard-delete for companies that still have data. Counts are
+      // head + exact so no rows are fetched, and RLS scopes them to the
+      // current user's own rows (one-user-per-company today).
+      const { count: entryCount } = await supabase
+        .from('entries').select('*', { count: 'exact', head: true }).eq('company_id', company.id);
+      const { count: payCount } = await supabase
+        .from('pays').select('*', { count: 'exact', head: true }).eq('company_id', company.id);
+      if ((entryCount || 0) > 0 || (payCount || 0) > 0) {
+        b.disabled = false;
+        alert(
+          `${company.name} has ${entryCount || 0} entries and ${payCount || 0} paychecks, ` +
+          'so it cannot be deleted. It stays archived.'
+        );
+        return;
+      }
+
       const ok = confirm(
         `Permanently delete ${company.name}?\n\n` +
-        'This deletes the company and ALL of its entries, paychecks, and ' +
-        'time-off settings. This cannot be undone.'
+        'This company has no entries or paychecks. This cannot be undone.'
       );
-      if (!ok) return;
-      b.disabled = true;
+      if (!ok) {
+        b.disabled = false;
+        return;
+      }
       const deleted = await deleteCompany(company.id);
       if (!deleted) {
         b.disabled = false;
