@@ -25,7 +25,9 @@ export function renderDashboard(state) {
 
   const inPP = Object.values(state.entries)
     .filter(e => e.date >= pp.start && e.date <= pp.end);
-  const otThreshold = state.settings.otThreshold || 40;
+  // OT threshold is per-company now. Fall back to 40 only when missing
+  // (null/undefined/NaN); a deliberately stored value, including 0, is kept.
+  const otThreshold = Number.isFinite(company.otThreshold) ? company.otThreshold : 40;
 
   // Week breakdown. The legacy module gave us pre-labeled chunks; the new
   // module returns raw {start, end} so we relabel here to keep the UI
@@ -38,7 +40,7 @@ export function renderDashboard(state) {
     ? [{ ...rawWeeks[0], label: 'Period' }]
     : rawWeeks.map((w, i) => ({ ...w, label: 'Week ' + (i + 1) }));
   for (const w of weeks) {
-    wkContainer.appendChild(renderWeekCard(w, state));
+    wkContainer.appendChild(renderWeekCard(w, state, company));
   }
 
   // Totals. Mirrors the per-week card buckets so they reconcile:
@@ -86,7 +88,7 @@ export function renderDashboard(state) {
   renderBalances(state);
 }
 
-function renderWeekCard(week, state) {
+function renderWeekCard(week, state, company) {
   const card = document.createElement('div');
   card.className = 'card week-card';
 
@@ -139,7 +141,7 @@ function renderWeekCard(week, state) {
   }
   html += '</tbody></table>';
 
-  const otThreshold = state.settings.otThreshold || 40;
+  const otThreshold = Number.isFinite(company.otThreshold) ? company.otThreshold : 40;
   const ot = Math.max(0, worked - otThreshold);
   const reg = Math.min(worked, otThreshold);
   html += `<div class="week-totals">
