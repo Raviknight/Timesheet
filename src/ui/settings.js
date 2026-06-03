@@ -224,7 +224,10 @@ function renderPerCompanyPayPeriod(state) {
     }
 
     html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
-      <div style="font-weight:600; margin-bottom:6px">${escapeHtml(c.name)}</div>
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+        <div style="font-weight:600">${escapeHtml(c.name)}</div>
+        <button class="btn btn-sm" data-archive style="opacity:0.75">Archive</button>
+      </div>
       <div class="row">
         <div class="grow">
           <label>Pay frequency</label>
@@ -243,6 +246,18 @@ function renderPerCompanyPayPeriod(state) {
     </div>`;
   }
   list.innerHTML = html;
+
+  list.querySelectorAll('button[data-archive]').forEach(b => {
+    b.onclick = () => {
+      const card = b.closest('[data-company-id]');
+      const cid = card?.dataset.companyId;
+      const company = state.companies.find(c => String(c.id ?? '') === cid);
+      if (!company) return;
+      company.isActive = false;
+      saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
+      renderPerCompanyPayPeriod(state);
+    };
+  });
 }
 
 function renderTOTypes(state) {
