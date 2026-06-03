@@ -251,6 +251,9 @@ function renderPerCompanyPayPeriod(state) {
         <div class="stat-label">Current period preview</div>
         <div data-pp-preview style="font-size:14px;font-weight:500;margin-top:4px">${previewText}</div>
       </div>
+      <div class="row" style="justify-content:flex-end; margin-top:8px">
+        <button class="btn btn-sm btn-primary" data-pp-save>Save</button>
+      </div>
     </div>`;
   }
   list.innerHTML = html;
@@ -271,7 +274,61 @@ function renderPerCompanyPayPeriod(state) {
     });
     // Fill empty fields in the initially-visible group so its preview is valid.
     applyPpGroupDefaults(card, freqSel.value);
+
+    const saveBtn = card.querySelector('[data-pp-save]');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const built = buildPpCompanyFromCard(card);
+        // Validate by reusing the preview's logic: an incomplete or invalid
+        // config for the chosen frequency throws.
+        try {
+          getPayPeriodFor('current', null, built);
+        } catch (err) {
+          toast('Complete the required fields before saving.');
+          return;
+        }
+        const cid = card.dataset.companyId;
+        const company = state.companies.find(c => String(c.id ?? '') === cid);
+        if (!company) return;
+        Object.assign(company, built);
+        saveBtn.disabled = true;
+        const ok = await saveKey(SK.companies, state.companies, 'Companies');
+        saveBtn.disabled = false;
+        if (ok) {
+          setSyncIdle();
+          toast('Pay period saved');
+        } else {
+          toast('Could not save pay period');
+        }
+      };
+    }
   });
+}
+
+// Build a clean, DB-appropriate company object from a card's current inputs.
+// Empty strings become null; numeric fields are parsed to numbers;
+// advancedAnchorDate stays a date string or null. Shared by preview + save.
+function buildPpCompanyFromCard(card) {
+  const numField = (name) => {
+    const v = ppFieldEl(card, name).value;
+    if (v == null || v === '') return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const strField = (name) => {
+    const v = ppFieldEl(card, name).value;
+    return v == null || v === '' ? null : v;
+  };
+  return {
+    payFrequency: ppFieldEl(card, 'payFrequency').value,
+    weekStartDow: parseInt(ppFieldEl(card, 'weekStartDow').value, 10),
+    biweeklyStartParity: strField('biweeklyStartParity'),
+    semiFirstDay: numField('semiFirstDay'),
+    semiSecondDay: numField('semiSecondDay'),
+    monthlyStartDay: numField('monthlyStartDay'),
+    advancedAnchorDate: strField('advancedAnchorDate'),
+    advancedCycleDays: numField('advancedCycleDays'),
+  };
 }
 
 // Default values for conditional pay-period fields (advancedAnchorDate is
@@ -318,22 +375,7 @@ function applyPpGroupDefaults(card, freq) {
 function updatePpCardPreview(card) {
   const out = card.querySelector('[data-pp-preview]');
   if (!out) return;
-  const freq = ppFieldEl(card, 'payFrequency').value;
-  const temp = {
-    payFrequency: freq,
-    weekStartDow: +ppFieldEl(card, 'weekStartDow').value,
-  };
-  if (freq === 'biweekly') {
-    temp.biweeklyStartParity = ppFieldEl(card, 'biweeklyStartParity').value;
-  } else if (freq === 'semimonthly') {
-    temp.semiFirstDay = +ppFieldEl(card, 'semiFirstDay').value;
-    temp.semiSecondDay = +ppFieldEl(card, 'semiSecondDay').value;
-  } else if (freq === 'monthly') {
-    temp.monthlyStartDay = +ppFieldEl(card, 'monthlyStartDay').value;
-  } else if (freq === 'advanced') {
-    temp.advancedAnchorDate = ppFieldEl(card, 'advancedAnchorDate').value || null;
-    temp.advancedCycleDays = +ppFieldEl(card, 'advancedCycleDays').value;
-  }
+  const temp = buildPpCompanyFromCard(card);
   try {
     const pp = getPayPeriodFor('current', null, temp);
     const days = periodLengthDays(pp.start, pp.end);
