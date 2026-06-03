@@ -150,8 +150,11 @@ function refreshPPPreview(state) {
 function renderPerCompanyPayPeriod(state) {
   const list = document.getElementById('ppPerCompanyList');
   if (!list) return;
-  if (!Array.isArray(state.companies) || state.companies.length === 0) {
-    list.innerHTML = '<div class="muted">No companies yet</div>';
+  const activeCompanies = Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : [];
+  if (activeCompanies.length === 0) {
+    list.innerHTML = '<div class="muted">No active companies.</div>';
     return;
   }
 
@@ -165,7 +168,7 @@ function renderPerCompanyPayPeriod(state) {
   ];
 
   let html = '';
-  for (const c of state.companies) {
+  for (const c of activeCompanies) {
     const freq = c.payFrequency || 'biweekly';
     const wsd = c.weekStartDow ?? 1;
 
@@ -227,7 +230,6 @@ function renderPerCompanyPayPeriod(state) {
     html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
       <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px">
         <div style="font-weight:600">${escapeHtml(c.name)}</div>
-        <button class="btn btn-sm" data-archive style="opacity:0.75">Archive</button>
       </div>
       <div class="row">
         <div class="grow">
@@ -247,18 +249,6 @@ function renderPerCompanyPayPeriod(state) {
     </div>`;
   }
   list.innerHTML = html;
-
-  list.querySelectorAll('button[data-archive]').forEach(b => {
-    b.onclick = () => {
-      const card = b.closest('[data-company-id]');
-      const cid = card?.dataset.companyId;
-      const company = state.companies.find(c => String(c.id ?? '') === cid);
-      if (!company) return;
-      company.isActive = false;
-      saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
-      renderPerCompanyPayPeriod(state);
-    };
-  });
 }
 
 function renderTOTypes(state) {
@@ -465,13 +455,29 @@ function renderTOTypes(state) {
 function renderCompaniesList(state) {
   const list = document.getElementById('companiesList');
   list.innerHTML = state.companies.length
-    ? state.companies.map((c, i) => `
-      <div class="row" style="margin-bottom:6px;padding:6px 10px;background:var(--surface-2);border-radius:var(--radius)">
-        <span class="grow">${escapeHtml(c.name)}</span>
+    ? state.companies.map((c, i) => {
+        const inactive = c.isActive === false;
+        return `
+      <div class="row" style="margin-bottom:6px;padding:6px 10px;background:var(--surface-2);border-radius:var(--radius)${inactive ? ';opacity:0.6' : ''}">
+        <span class="grow">${escapeHtml(c.name)}${inactive ? ' <span class="muted">(inactive)</span>' : ''}</span>
+        <button class="btn btn-sm" data-toggle="${i}">${inactive ? 'Activate' : 'Deactivate'}</button>
         <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
       </div>
-    `).join('')
+    `;
+      }).join('')
     : '<div class="muted">No companies yet.</div>';
+
+  list.querySelectorAll('button[data-toggle]').forEach(b => {
+    b.onclick = () => {
+      const idx = +b.dataset.toggle;
+      const company = state.companies[idx];
+      if (!company) return;
+      company.isActive = company.isActive === false;
+      saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
+      renderCompaniesList(state);
+      renderPerCompanyPayPeriod(state);
+    };
+  });
 
   list.querySelectorAll('button[data-del]').forEach(b => {
     b.onclick = () => {
