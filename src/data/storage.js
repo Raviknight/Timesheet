@@ -208,7 +208,7 @@ export const RemoteStore = {
           .select(
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
-            ' advanced_anchor_date, advanced_cycle_days'
+            ' advanced_anchor_date, advanced_cycle_days, is_active'
           );
         if (error) {
           console.error('[storage] companies read failed:', error);
@@ -842,7 +842,7 @@ export const RemoteStore = {
           .select(
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
-            ' advanced_anchor_date, advanced_cycle_days'
+            ' advanced_anchor_date, advanced_cycle_days, is_active'
           );
         writeCache['ts:companies'] = {
           snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),
