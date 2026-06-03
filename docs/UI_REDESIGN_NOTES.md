@@ -287,3 +287,31 @@ Captures system time and creates or updates today's entry.
   the Clock In / Clock Out flow too.
 
 ---
+
+## Multi-company UX: Pay Period subtabs, per-company Settings, Daily Log indicator
+
+Captured June 2026. Slot as 3e.7+ after 3e.4b, 3e.5, 3e.6 land.
+
+**Pay Period view.** Subtabs at the top of the page, one per active company (`isActive !== false`). The selected subtab determines which company's pay period renders. On app load, default subtab is `profile.companyId` if it matches an active company, otherwise the first active company.
+
+**Entry modal.** Add a Company picker listing active companies only.
+- From a top-level "+ Add Entry": no preselected company; user picks before save.
+- From inside a Pay Period subtab: picker pre-filled with that subtab's company; user can still change.
+- The picker controls the `company_id` saved on the entry.
+
+**Settings: time-off and standard day.** Move both from user-level to per-company, mirroring the per-company Pay Period section in 3e.4. Each active company gets its own Time-Off Types card and Standard Day card within the existing Settings page.
+- `time_off_types` already has `company_id` from the Phase 3 schema; UI switches from user-level to company-level rendering and writes.
+- Standard Day currently in `settings.standardDay`. Migrate to per-company columns on `companies` or a new table. Decide at build time.
+
+**Daily Log.** No subtabs. Pick one at build time:
+- A. Add a Company column to the table.
+- B. Render the company name below the time/date for each row.
+
+**Paychecks.** No change; already shows company name below the date.
+
+**Implications.**
+- `profile.companyId` semantics shift from "the single active company everywhere" to "default/last-viewed company."
+- Every `activeCompany(state)` call site needs an audit pass: either rework to know its own scope (e.g. Pay Period subtab), or stay on profile-default fallback.
+- Touchpoints: dashboard.js, entryModal.js, settings.js, log.js, activeCompany.js.
+
+---
