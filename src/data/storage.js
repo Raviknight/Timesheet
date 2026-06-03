@@ -23,7 +23,7 @@ import { supabase } from './supabase.js';
  *
  * Returns the user id (UUID) if signed in, null otherwise.
  */
-function getSignedInUserId() {
+export function getSignedInUserId() {
   try {
     // Supabase stores its session in localStorage under a key like
     // sb-<project-ref>-auth-token. We can read it directly.

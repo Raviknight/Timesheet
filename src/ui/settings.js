@@ -23,6 +23,7 @@ import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, ti
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
+import { createCompany } from '../data/bootstrap.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
@@ -538,13 +539,29 @@ export function wireSettings(state, { saveAll }) {
     renderTOTypes(state);
   };
 
-  document.getElementById('btnAddCompany').onclick = () => {
-    const name = document.getElementById('newCompany').value.trim();
+  document.getElementById('btnAddCompany').onclick = async () => {
+    const input = document.getElementById('newCompany');
+    const btn = document.getElementById('btnAddCompany');
+    const name = input.value.trim();
     if (!name) return;
-    state.companies.push({ id: name.toLowerCase().replace(/\s+/g, '-'), name });
-    document.getElementById('newCompany').value = '';
-    saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
-    renderCompaniesList(state);
+    btn.disabled = true;
+    try {
+      await createCompany(name);
+      // Re-read from the store so state.companies reflects the persisted
+      // rows (and the write-path snapshot is refreshed for future diffs).
+      const companies = await Store.get(SK.companies, null);
+      state.companies = migrateCompanies(companies || [], state.settings);
+      input.value = '';
+      setSyncIdle();
+      renderCompaniesList(state);
+      renderPerCompanyPayPeriod(state);
+      toast('Company added');
+    } catch (e) {
+      console.error('Add company failed:', e);
+      toast('Could not add company');
+    } finally {
+      btn.disabled = false;
+    }
   };
 
   // Live preview of pay period changes

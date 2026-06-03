@@ -17,6 +17,30 @@
 
 import { supabase } from './supabase.js';
 import { DEFAULT_TIME_OFF_TYPES } from './schema.js';
+import { getSignedInUserId } from './storage.js';
+
+/**
+ * Insert the default time-off types (PTO, Sick, Holiday, Unpaid) for a
+ * company. Shared by bootstrapNewUser and createCompany so the seed set
+ * stays identical. RLS requires the caller to already be a company_member.
+ */
+async function insertDefaultTimeOffTypes(companyId) {
+  const timeOffRows = DEFAULT_TIME_OFF_TYPES.map(t => ({
+    company_id: companyId,
+    code: t.code,
+    label: t.label,
+    pool_days: t.poolDays || 0,
+    hours_per_day: t.hoursPerDay || 8,
+    counts_against_pool: t.countsAgainstPool || false,
+    shared_pool_with: t.sharedPoolWith || null,
+    unpaid: t.unpaid || false,
+    additive: t.additive || false,
+  }));
+  const { error } = await supabase
+    .from('time_off_types')
+    .insert(timeOffRows);
+  if (error) throw error;
+}
 
 /**
  * Check if the current user has been bootstrapped.
@@ -87,27 +111,90 @@ export async function bootstrapNewUser(userId, email) {
   }
 
   // 4. Insert the default time-off types for this company
-  const timeOffRows = DEFAULT_TIME_OFF_TYPES.map(t => ({
-    company_id: company.id,
-    code: t.code,
-    label: t.label,
-    pool_days: t.poolDays || 0,
-    hours_per_day: t.hoursPerDay || 8,
-    counts_against_pool: t.countsAgainstPool || false,
-    shared_pool_with: t.sharedPoolWith || null,
-    unpaid: t.unpaid || false,
-    additive: t.additive || false,
-  }));
-  const { error: typesError } = await supabase
-    .from('time_off_types')
-    .insert(timeOffRows);
-  if (typesError) {
+  try {
+    await insertDefaultTimeOffTypes(company.id);
+  } catch (typesError) {
     console.error('bootstrap: time-off types insert failed', typesError);
     throw typesError;
   }
 
   console.log('Bootstrap complete for user', userId);
   return profile;
+}
+
+/**
+ * Create a complete, additional company for the CURRENT signed-in user.
+ *
+ * Unlike bootstrapNewUser this does NOT create or touch a profile, so the
+ * user's active_company_id is left unchanged: adding a company does not
+ * switch which one is active.
+ *
+ * Inserts in the same RLS-safe order bootstrap uses:
+ *   1. companies row (owner_user_id = current user)
+ *   2. company_members row (so RLS lets us reference the company)
+ *   3. default time_off_types
+ *
+ * The id is generated client-side (crypto.randomUUID) so we never depend
+ * on a SELECT-after-insert against the companies RLS policy.
+ *
+ * Returns the new company id.
+ */
+export async function createCompany(name) {
+  const userId = getSignedInUserId();
+  if (!userId) {
+    throw new Error('createCompany: no signed-in user');
+  }
+  const trimmed = (name || '').trim();
+  if (!trimmed) {
+    throw new Error('createCompany: name is required');
+  }
+
+  const companyId = crypto.randomUUID();
+
+  // 1. companies row with a fresh company's pay-period defaults.
+  const { error: companyError } = await supabase
+    .from('companies')
+    .insert({
+      id: companyId,
+      name: trimmed,
+      owner_user_id: userId,
+      pay_frequency: 'biweekly',
+      week_start_dow: 1,
+      biweekly_start_parity: 'odd',
+      semi_first_day: null,
+      semi_second_day: null,
+      monthly_start_day: null,
+      advanced_anchor_date: null,
+      advanced_cycle_days: null,
+      is_active: true,
+    });
+  if (companyError) {
+    console.error('createCompany: company insert failed', companyError);
+    throw companyError;
+  }
+
+  // 2. owner company_members row so RLS lets us reference the company.
+  const { error: memberError } = await supabase
+    .from('company_members')
+    .insert({
+      company_id: companyId,
+      user_id: userId,
+      role: 'owner',
+    });
+  if (memberError) {
+    console.error('createCompany: member insert failed', memberError);
+    throw memberError;
+  }
+
+  // 3. default time-off types for the new company.
+  try {
+    await insertDefaultTimeOffTypes(companyId);
+  } catch (typesError) {
+    console.error('createCompany: time-off types insert failed', typesError);
+    throw typesError;
+  }
+
+  return companyId;
 }
 
 /**
