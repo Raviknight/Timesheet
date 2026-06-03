@@ -71,6 +71,8 @@ export function renderDashboard(state) {
   //   - weekly:   one window per split week (as before).
   //   - biweekly: consecutive split weeks paired into 2-week blocks; a
   //               leftover single week is its own block.
+  //   - semimonthly: half-month windows split at semiSecondDay (default 16),
+  //               keyed by YYYY-MM plus which half.
   //   - monthly:  entries grouped by calendar month (YYYY-MM).
   const otPeriod = company.otPeriod || 'weekly';
   let otWindowGroups;
@@ -81,6 +83,16 @@ export function renderDashboard(state) {
       const end = (weeks[i + 1] || weeks[i]).end;
       otWindowGroups.push(inPP.filter(e => e.date >= start && e.date <= end));
     }
+  } else if (otPeriod === 'semimonthly') {
+    const splitDay = Number.isFinite(company.semiSecondDay) ? company.semiSecondDay : 16;
+    const byHalf = new Map();
+    for (const e of inPP) {
+      const dom = parseInt(e.date.slice(8, 10), 10);
+      const key = e.date.slice(0, 7) + (dom < splitDay ? '-A' : '-B');
+      if (!byHalf.has(key)) byHalf.set(key, []);
+      byHalf.get(key).push(e);
+    }
+    otWindowGroups = [...byHalf.values()];
   } else if (otPeriod === 'monthly') {
     const byMonth = new Map();
     for (const e of inPP) {
@@ -163,9 +175,9 @@ function renderWeekCard(week, state, company) {
   html += '</tbody></table>';
 
   // The per-week regular/OT split only makes sense when the OT window IS the
-  // week (otPeriod weekly). For biweekly/monthly the window spans multiple
-  // weeks, so a single week can't be split here; show worked hours only and
-  // let the pay-period total carry the OT figure.
+  // week (otPeriod weekly). For any other window (biweekly/semimonthly/
+  // monthly) the window does not align to a single week, so we can't split it
+  // here; show worked hours only and let the pay-period total carry OT.
   const otPeriod = company.otPeriod || 'weekly';
   let breakdownHtml;
   if (otPeriod === 'weekly') {

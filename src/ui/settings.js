@@ -44,7 +44,6 @@ export function renderSettings(state) {
   setVal('setCycleDays', s.cycleDays || 14);
   setVal('setOTThreshold', s.otThreshold);
   setVal('setBreakMin', s.breakMinutes);
-  setVal('setHoursOT', s.otThreshold);
   setVal('setHoursBreak', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
@@ -257,6 +256,7 @@ function renderPerCompanyPayPeriod(state) {
           <select data-pp-field="otPeriod">
             <option value="weekly"${otPeriod === 'weekly' ? ' selected' : ''}>Weekly</option>
             <option value="biweekly"${otPeriod === 'biweekly' ? ' selected' : ''}>Bi-weekly</option>
+            <option value="semimonthly"${otPeriod === 'semimonthly' ? ' selected' : ''}>Semi-monthly</option>
             <option value="monthly"${otPeriod === 'monthly' ? ' selected' : ''}>Monthly</option>
           </select>
         </div>
@@ -706,7 +706,6 @@ export function wireSettings(state, { saveAll }) {
   };
 
   document.getElementById('btnSaveHours').onclick = async () => {
-    state.settings.otThreshold = parseFloat(document.getElementById('setHoursOT').value) || 40;
     state.settings.breakMinutes = parseFloat(document.getElementById('setHoursBreak').value) || 0;
     if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
     setSyncIdle();
