@@ -16,8 +16,6 @@ import {
   DEFAULT_TIME_OFF_TYPES, migrateEntries, migrateCompanies,
 } from '../data/schema.js';
 import { getPayPeriodFor, periodLengthDays } from '../core/payPeriod.js';
-import { clampDom } from '../core/period.js';
-import { activeCompany } from '../data/activeCompany.js';
 import { escapeHtml, formatLong } from '../core/format.js';
 import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
@@ -34,16 +32,6 @@ let pbyDraft = null;
 export function renderSettings(state) {
   renderPerCompanyPayPeriod(state);
   const s = state.settings;
-  setVal('setSystem', s.system || 'biweekly');
-  setVal('setStartDow', s.startDow ?? 1);
-  setVal('setBiweeklyRef', s.biweeklyRef || s.anchorDate || '');
-  setVal('setSemi1', s.semi1 || 1);
-  setVal('setSemi2', s.semi2 || 16);
-  setVal('setMonthlyStart', s.monthlyStart || 1);
-  setVal('setAnchor', s.anchorDate || '');
-  setVal('setCycleDays', s.cycleDays || 14);
-  setVal('setOTThreshold', s.otThreshold);
-  setVal('setBreakMin', s.breakMinutes);
   setVal('setHoursBreak', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
@@ -53,7 +41,6 @@ export function renderSettings(state) {
   setVal('setSdSeg2Start', sd.seg2Start || '');
   setVal('setSdSeg2End', sd.seg2End || '');
   refreshStandardDayUI();
-  refreshPPSettingsUI(state);
   renderTOTypes(state);
   renderCompaniesList(state);
 }
@@ -88,9 +75,9 @@ function refreshStandardDayUI() {
   const totalEl = document.getElementById('setSdTotal');
   const errEl = document.getElementById('setSdError');
   const btn = document.getElementById('btnSaveStandardDay');
-  // Source break minutes from the Pay Period form input live, so edits
-  // to either card reflect in the Standard Day total immediately.
-  const breakMin = parseFloat(document.getElementById('setBreakMin')?.value);
+  // Source break minutes from the Hours card input live, so edits there
+  // reflect in the Standard Day total immediately.
+  const breakMin = parseFloat(document.getElementById('setHoursBreak')?.value);
   totalEl.textContent = err ? '—' : computeStandardDayHours(sd, breakMin).toFixed(2);
   if (err) {
     errEl.textContent = err;
@@ -106,47 +93,6 @@ function refreshStandardDayUI() {
 function setVal(id, v) {
   const el = document.getElementById(id);
   if (el) el.value = v;
-}
-
-function refreshPPSettingsUI(state) {
-  const sys = document.getElementById('setSystem').value;
-  document.getElementById('setStartDowRow').style.display =
-    (sys === 'weekly' || sys === 'biweekly') ? 'flex' : 'none';
-  document.getElementById('setBiweeklyRefRow').style.display =
-    sys === 'biweekly' ? 'block' : 'none';
-  document.getElementById('setSemiMonthlyRow').style.display =
-    sys === 'semimonthly' ? 'flex' : 'none';
-  document.getElementById('setMonthlyRow').style.display =
-    sys === 'monthly' ? 'flex' : 'none';
-  document.getElementById('setAdvancedRow').style.display =
-    sys === 'advanced' ? 'block' : 'none';
-
-  const helps = {
-    weekly: 'Each pay period is one week, starting on the selected day.',
-    biweekly: 'Two-week cycle. Pick the start day and any past period-start date.',
-    semimonthly: 'Two periods per month at fixed days-of-month (e.g. 1st and 16th).',
-    monthly: 'One period per month starting on the chosen day.',
-    advanced: 'Periods of any length, anchored to a custom start date.',
-  };
-  document.getElementById('systemHelp').textContent = helps[sys] || '';
-  refreshPPPreview(state);
-}
-
-function refreshPPPreview(state) {
-  // Per 3e.3: the preview reads from the active company, not the form.
-  // The Pay Period card's old inputs still bind to legacy settings keys
-  // that the new payPeriod module no longer consults; per-company form
-  // editing lands in 3e.5.
-  const company = activeCompany(state);
-  try {
-    const pp = getPayPeriodFor('current', null, company);
-    const days = periodLengthDays(pp.start, pp.end);
-    document.getElementById('setPreview').textContent =
-      `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
-  } catch (err) {
-    document.getElementById('setPreview').textContent =
-      'Invalid configuration: ' + err.message;
-  }
 }
 
 function renderPerCompanyPayPeriod(state) {
@@ -687,23 +633,6 @@ function renderCompaniesList(state) {
 
 export function wireSettings(state, { saveAll }) {
   // Save handlers
-  document.getElementById('btnSavePP').onclick = async () => {
-    state.settings.system = document.getElementById('setSystem').value;
-    state.settings.startDow = +document.getElementById('setStartDow').value;
-    state.settings.biweeklyRef = document.getElementById('setBiweeklyRef').value
-      || state.settings.biweeklyRef || '2025-12-29';
-    state.settings.semi1 = clampDom(document.getElementById('setSemi1').value);
-    state.settings.semi2 = clampDom(document.getElementById('setSemi2').value);
-    state.settings.monthlyStart = clampDom(document.getElementById('setMonthlyStart').value);
-    state.settings.anchorDate = document.getElementById('setAnchor').value
-      || state.settings.anchorDate || '2025-12-29';
-    state.settings.cycleDays = +document.getElementById('setCycleDays').value || 14;
-    state.settings.otThreshold = parseFloat(document.getElementById('setOTThreshold').value) || 40;
-    state.settings.breakMinutes = parseFloat(document.getElementById('setBreakMin').value) || 0;
-    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
-    setSyncIdle();
-    toast('Pay-period settings saved');
-  };
 
   document.getElementById('btnSaveHours').onclick = async () => {
     state.settings.breakMinutes = parseFloat(document.getElementById('setHoursBreak').value) || 0;
@@ -721,9 +650,9 @@ export function wireSettings(state, { saveAll }) {
     toast('Profile saved');
   };
 
-  // setBreakMin lives on the Pay Period card but feeds Standard Day's
-  // live total, so re-render that card when it changes too.
-  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setBreakMin']
+  // setHoursBreak lives on the Hours card but feeds Standard Day's live
+  // total, so re-render that card when it changes too.
+  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setHoursBreak']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', refreshStandardDayUI);
@@ -771,17 +700,6 @@ export function wireSettings(state, { saveAll }) {
       btn.disabled = false;
     }
   };
-
-  // Live preview of pay period changes
-  ['setSystem', 'setStartDow', 'setBiweeklyRef', 'setSemi1', 'setSemi2',
-    'setMonthlyStart', 'setAnchor', 'setCycleDays'].forEach(id => {
-    document.addEventListener('change', ev => {
-      if (ev.target?.id === id) refreshPPSettingsUI(state);
-    });
-    document.addEventListener('input', ev => {
-      if (ev.target?.id === id) refreshPPPreview(state);
-    });
-  });
 
   // Data import/export
   document.getElementById('btnExport').onclick = () => {
