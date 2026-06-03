@@ -65,17 +65,38 @@ export function renderDashboard(state) {
     }
   }
 
-  // Regular vs OT per-week, computed on WORKED hours only. Holiday and
-  // PTO/SICK do not push the worked total over the OT threshold.
-  for (const w of weeks) {
-    const wk = inPP.filter(e => e.date >= w.start && e.date <= w.end);
-    const wkWorked = wk.reduce((s, e) => s + computeHoursWorked(e, state.settings), 0);
-    if (wkWorked > otThreshold) {
-      ppRegular += otThreshold;
-      ppOT += wkWorked - otThreshold;
-    } else {
-      ppRegular += wkWorked;
+  // Regular vs OT per OT WINDOW, computed on WORKED hours only. Holiday and
+  // PTO/SICK do not push the worked total over the OT threshold. The window
+  // size follows the company's otPeriod:
+  //   - weekly:   one window per split week (as before).
+  //   - biweekly: consecutive split weeks paired into 2-week blocks; a
+  //               leftover single week is its own block.
+  //   - monthly:  entries grouped by calendar month (YYYY-MM).
+  const otPeriod = company.otPeriod || 'weekly';
+  let otWindowGroups;
+  if (otPeriod === 'biweekly') {
+    otWindowGroups = [];
+    for (let i = 0; i < weeks.length; i += 2) {
+      const start = weeks[i].start;
+      const end = (weeks[i + 1] || weeks[i]).end;
+      otWindowGroups.push(inPP.filter(e => e.date >= start && e.date <= end));
     }
+  } else if (otPeriod === 'monthly') {
+    const byMonth = new Map();
+    for (const e of inPP) {
+      const key = e.date.slice(0, 7);
+      if (!byMonth.has(key)) byMonth.set(key, []);
+      byMonth.get(key).push(e);
+    }
+    otWindowGroups = [...byMonth.values()];
+  } else {
+    otWindowGroups = weeks.map(w => inPP.filter(e => e.date >= w.start && e.date <= w.end));
+  }
+
+  for (const grp of otWindowGroups) {
+    const windowWorked = grp.reduce((s, e) => s + computeHoursWorked(e, state.settings), 0);
+    ppRegular += Math.min(windowWorked, otThreshold);
+    ppOT += Math.max(0, windowWorked - otThreshold);
   }
 
   const ppTotal = ppRegular + ppOT + ppHoliday + ppTimeOff;
@@ -141,13 +162,24 @@ function renderWeekCard(week, state, company) {
   }
   html += '</tbody></table>';
 
-  const otThreshold = Number.isFinite(company.otThreshold) ? company.otThreshold : 40;
-  const ot = Math.max(0, worked - otThreshold);
-  const reg = Math.min(worked, otThreshold);
+  // The per-week regular/OT split only makes sense when the OT window IS the
+  // week (otPeriod weekly). For biweekly/monthly the window spans multiple
+  // weeks, so a single week can't be split here; show worked hours only and
+  // let the pay-period total carry the OT figure.
+  const otPeriod = company.otPeriod || 'weekly';
+  let breakdownHtml;
+  if (otPeriod === 'weekly') {
+    const otThreshold = Number.isFinite(company.otThreshold) ? company.otThreshold : 40;
+    const ot = Math.max(0, worked - otThreshold);
+    const reg = Math.min(worked, otThreshold);
+    breakdownHtml = `<span>Regular: <strong>${reg.toFixed(2)}</strong></span>`
+      + (ot > 0 ? `<span>OT: <strong style="color:var(--success)">${ot.toFixed(2)}</strong></span>` : '');
+  } else {
+    breakdownHtml = `<span>Worked: <strong>${worked.toFixed(2)}</strong></span>`;
+  }
   html += `<div class="week-totals">
     <span>Total: <strong>${(worked + holiday + timeOff).toFixed(2)}</strong></span>
-    <span>Regular: <strong>${reg.toFixed(2)}</strong></span>
-    ${ot > 0 ? `<span>OT: <strong style="color:var(--success)">${ot.toFixed(2)}</strong></span>` : ''}
+    ${breakdownHtml}
     ${holiday > 0 ? `<span>Holiday: <strong>${holiday.toFixed(2)}</strong></span>` : ''}
     ${timeOff > 0 ? `<span>Time off: <strong>${timeOff.toFixed(2)}</strong></span>` : ''}
   </div>`;
