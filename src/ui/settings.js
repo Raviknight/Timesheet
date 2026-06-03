@@ -174,6 +174,8 @@ function renderPerCompanyPayPeriod(state) {
   for (const c of activeCompanies) {
     const freq = c.payFrequency || 'biweekly';
     const wsd = c.weekStartDow ?? 1;
+    const otPeriod = c.otPeriod || 'weekly';
+    const otThreshold = c.otThreshold ?? 40;
 
     const freqHtml = FREQ_OPTIONS.map(([v, label]) =>
       `<option value="${v}"${v === freq ? ' selected' : ''}>${label}</option>`
@@ -248,6 +250,20 @@ function renderPerCompanyPayPeriod(state) {
           <select data-pp-field="weekStartDow">${dowHtml}</select>
         </div>
         ${extraHtml}
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="grow">
+          <label>OT period</label>
+          <select data-pp-field="otPeriod">
+            <option value="weekly"${otPeriod === 'weekly' ? ' selected' : ''}>Weekly</option>
+            <option value="biweekly"${otPeriod === 'biweekly' ? ' selected' : ''}>Bi-weekly</option>
+            <option value="monthly"${otPeriod === 'monthly' ? ' selected' : ''}>Monthly</option>
+          </select>
+        </div>
+        <div class="grow">
+          <label>OT threshold (hours per OT period, e.g. 40 weekly / 80 bi-weekly)</label>
+          <input type="number" min="0" step="0.5" data-pp-field="otThreshold" value="${otThreshold}">
+        </div>
       </div>
       <div class="stat" style="margin-top:8px;background:var(--surface-2)">
         <div class="stat-label">Current period preview</div>
@@ -330,6 +346,11 @@ function buildPpCompanyFromCard(card) {
     monthlyStartDay: numField('monthlyStartDay'),
     advancedAnchorDate: strField('advancedAnchorDate'),
     advancedCycleDays: numField('advancedCycleDays'),
+    otPeriod: ppFieldEl(card, 'otPeriod').value,
+    otThreshold: (() => {
+      const n = parseFloat(ppFieldEl(card, 'otThreshold').value);
+      return Number.isFinite(n) ? n : 40;
+    })(),
   };
 }
 
