@@ -180,44 +180,48 @@ function renderPerCompanyPayPeriod(state) {
       `<option value="${i}"${i === wsd ? ' selected' : ''}>${label}</option>`
     ).join('');
 
-    let extraHtml = '';
-    if (freq === 'biweekly') {
-      const parity = c.biweeklyStartParity || 'odd';
-      extraHtml = `
-        <div class="grow">
+    // All conditional groups are always rendered; only the one matching the
+    // current frequency is visible. Visibility + defaults are toggled in the
+    // wiring below as the frequency changes. Values render stored-or-empty;
+    // empty visible fields are filled with defaults at wire time.
+    const parity = c.biweeklyStartParity || 'odd';
+    const grpStyle = (g) => freq === g ? '' : ' style="display:none"';
+    const extraHtml = `
+        <div class="grow" data-pp-group="biweekly"${grpStyle('biweekly')}>
           <label>Week parity</label>
           <select data-pp-field="biweeklyStartParity">
             <option value="odd"${parity === 'odd' ? ' selected' : ''}>Odd weeks</option>
             <option value="even"${parity === 'even' ? ' selected' : ''}>Even weeks</option>
           </select>
-        </div>`;
-    } else if (freq === 'semimonthly') {
-      extraHtml = `
-        <div class="grow">
-          <label>First day (1-15)</label>
-          <input type="number" min="1" max="15" data-pp-field="semiFirstDay" value="${c.semiFirstDay ?? 1}">
         </div>
-        <div class="grow">
-          <label>Second day (16-31)</label>
-          <input type="number" min="16" max="31" data-pp-field="semiSecondDay" value="${c.semiSecondDay ?? 16}">
-        </div>`;
-    } else if (freq === 'monthly') {
-      extraHtml = `
-        <div class="grow">
+        <div class="grow" data-pp-group="semimonthly"${grpStyle('semimonthly')}>
+          <div class="row">
+            <div class="grow">
+              <label>First day (1-15)</label>
+              <input type="number" min="1" max="15" data-pp-field="semiFirstDay" value="${c.semiFirstDay ?? ''}">
+            </div>
+            <div class="grow">
+              <label>Second day (16-31)</label>
+              <input type="number" min="16" max="31" data-pp-field="semiSecondDay" value="${c.semiSecondDay ?? ''}">
+            </div>
+          </div>
+        </div>
+        <div class="grow" data-pp-group="monthly"${grpStyle('monthly')}>
           <label>Anchor day (1-31)</label>
-          <input type="number" min="1" max="31" data-pp-field="monthlyStartDay" value="${c.monthlyStartDay ?? 1}">
-        </div>`;
-    } else if (freq === 'advanced') {
-      extraHtml = `
-        <div class="grow">
-          <label>Anchor date</label>
-          <input type="date" data-pp-field="advancedAnchorDate" value="${escapeHtml(c.advancedAnchorDate || '')}">
+          <input type="number" min="1" max="31" data-pp-field="monthlyStartDay" value="${c.monthlyStartDay ?? ''}">
         </div>
-        <div class="grow">
-          <label>Cycle days</label>
-          <input type="number" min="1" max="60" step="1" data-pp-field="advancedCycleDays" value="${c.advancedCycleDays ?? 14}">
+        <div class="grow" data-pp-group="advanced"${grpStyle('advanced')}>
+          <div class="row">
+            <div class="grow">
+              <label>Anchor date</label>
+              <input type="date" data-pp-field="advancedAnchorDate" value="${escapeHtml(c.advancedAnchorDate || '')}">
+            </div>
+            <div class="grow">
+              <label>Cycle days</label>
+              <input type="number" min="1" max="60" step="1" data-pp-field="advancedCycleDays" value="${c.advancedCycleDays ?? ''}">
+            </div>
+          </div>
         </div>`;
-    }
 
     let previewText;
     try {
@@ -225,7 +229,7 @@ function renderPerCompanyPayPeriod(state) {
       const days = periodLengthDays(pp.start, pp.end);
       previewText = `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
     } catch (err) {
-      previewText = 'Invalid configuration: ' + err.message;
+      previewText = 'Complete the fields to preview';
     }
 
     html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
@@ -245,11 +249,98 @@ function renderPerCompanyPayPeriod(state) {
       </div>
       <div class="stat" style="margin-top:8px;background:var(--surface-2)">
         <div class="stat-label">Current period preview</div>
-        <div style="font-size:14px;font-weight:500;margin-top:4px">${previewText}</div>
+        <div data-pp-preview style="font-size:14px;font-weight:500;margin-top:4px">${previewText}</div>
       </div>
     </div>`;
   }
   list.innerHTML = html;
+
+  // Wire each card: editing toggles conditional visibility and recomputes the
+  // preview from the current inputs. No persistence here (save is a later chunk).
+  list.querySelectorAll('[data-company-id]').forEach(card => {
+    const freqSel = ppFieldEl(card, 'payFrequency');
+    if (!freqSel) return;
+    freqSel.onchange = () => {
+      showPpGroupFor(card, freqSel.value);
+      applyPpGroupDefaults(card, freqSel.value);
+      updatePpCardPreview(card);
+    };
+    card.querySelectorAll('[data-pp-field]').forEach(el => {
+      if (el === freqSel) return;
+      el.onchange = () => updatePpCardPreview(card);
+    });
+    // Fill empty fields in the initially-visible group so its preview is valid.
+    applyPpGroupDefaults(card, freqSel.value);
+  });
+}
+
+// Default values for conditional pay-period fields (advancedAnchorDate is
+// intentionally left blank). Used when a group becomes visible with an empty
+// field. Values match getPayPeriodFor's own fallbacks so preview is consistent.
+const PP_FIELD_DEFAULTS = {
+  biweeklyStartParity: 'odd',
+  semiFirstDay: '1',
+  semiSecondDay: '16',
+  monthlyStartDay: '1',
+  advancedCycleDays: '14',
+};
+const PP_GROUP_FIELDS = {
+  weekly: [],
+  biweekly: ['biweeklyStartParity'],
+  semimonthly: ['semiFirstDay', 'semiSecondDay'],
+  monthly: ['monthlyStartDay'],
+  advanced: ['advancedAnchorDate', 'advancedCycleDays'],
+};
+
+function ppFieldEl(card, name) {
+  return card.querySelector(`[data-pp-field="${name}"]`);
+}
+
+function showPpGroupFor(card, freq) {
+  card.querySelectorAll('[data-pp-group]').forEach(g => {
+    g.style.display = g.dataset.ppGroup === freq ? '' : 'none';
+  });
+}
+
+function applyPpGroupDefaults(card, freq) {
+  for (const name of PP_GROUP_FIELDS[freq] || []) {
+    const el = ppFieldEl(card, name);
+    if (!el) continue;
+    if ((el.value == null || el.value === '') && name in PP_FIELD_DEFAULTS) {
+      el.value = PP_FIELD_DEFAULTS[name];
+    }
+  }
+}
+
+// Recompute a card's preview from its CURRENT input values, not the saved
+// company. Incomplete config (unknown freq, missing advanced anchor) throws,
+// in which case we show a neutral placeholder.
+function updatePpCardPreview(card) {
+  const out = card.querySelector('[data-pp-preview]');
+  if (!out) return;
+  const freq = ppFieldEl(card, 'payFrequency').value;
+  const temp = {
+    payFrequency: freq,
+    weekStartDow: +ppFieldEl(card, 'weekStartDow').value,
+  };
+  if (freq === 'biweekly') {
+    temp.biweeklyStartParity = ppFieldEl(card, 'biweeklyStartParity').value;
+  } else if (freq === 'semimonthly') {
+    temp.semiFirstDay = +ppFieldEl(card, 'semiFirstDay').value;
+    temp.semiSecondDay = +ppFieldEl(card, 'semiSecondDay').value;
+  } else if (freq === 'monthly') {
+    temp.monthlyStartDay = +ppFieldEl(card, 'monthlyStartDay').value;
+  } else if (freq === 'advanced') {
+    temp.advancedAnchorDate = ppFieldEl(card, 'advancedAnchorDate').value || null;
+    temp.advancedCycleDays = +ppFieldEl(card, 'advancedCycleDays').value;
+  }
+  try {
+    const pp = getPayPeriodFor('current', null, temp);
+    const days = periodLengthDays(pp.start, pp.end);
+    out.textContent = `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
+  } catch (err) {
+    out.textContent = 'Complete the fields to preview';
+  }
 }
 
 function renderTOTypes(state) {
