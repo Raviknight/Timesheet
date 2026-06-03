@@ -198,6 +198,31 @@ export async function createCompany(name) {
 }
 
 /**
+ * Hard-delete a company. The live schema cascades: company_members, entries,
+ * pays, and time_off_types referencing companies(id) are ON DELETE CASCADE,
+ * and profiles.active_company_id is ON DELETE SET NULL. So removing the single
+ * companies row removes all of that company's children and nulls any profile
+ * pointing at it. No manual child cleanup is needed here.
+ *
+ * Returns true on success, false on failure.
+ */
+export async function deleteCompany(id) {
+  if (!id) {
+    console.error('deleteCompany: id is required');
+    return false;
+  }
+  const { error } = await supabase
+    .from('companies')
+    .delete()
+    .eq('id', id);
+  if (error) {
+    console.error('deleteCompany: delete failed', error);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Convenience wrapper: get profile or bootstrap if missing.
  * Returns the profile in both cases.
  */

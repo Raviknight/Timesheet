@@ -23,7 +23,7 @@ import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, ti
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
-import { createCompany } from '../data/bootstrap.js';
+import { createCompany, deleteCompany } from '../data/bootstrap.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
@@ -461,7 +461,7 @@ function renderCompaniesList(state) {
       <div class="row" style="margin-bottom:6px;padding:6px 10px;background:var(--surface-2);border-radius:var(--radius)${inactive ? ';opacity:0.6' : ''}">
         <span class="grow">${escapeHtml(c.name)}${inactive ? ' <span class="muted">(inactive)</span>' : ''}</span>
         <button class="btn btn-sm" data-toggle="${i}">${inactive ? 'Activate' : 'Deactivate'}</button>
-        <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
+        ${inactive ? `<button class="btn btn-sm btn-danger" data-del="${i}">Delete</button>` : ''}
       </div>
     `;
       }).join('')
@@ -480,12 +480,31 @@ function renderCompaniesList(state) {
   });
 
   list.querySelectorAll('button[data-del]').forEach(b => {
-    b.onclick = () => {
+    b.onclick = async () => {
       const idx = +b.dataset.del;
-      if (!confirm(`Remove ${state.companies[idx].name}?`)) return;
-      state.companies.splice(idx, 1);
-      saveKey(SK.companies, state.companies, 'Companies').then(ok => { if (ok) setSyncIdle(); });
+      const company = state.companies[idx];
+      if (!company) return;
+      const ok = confirm(
+        `Permanently delete ${company.name}?\n\n` +
+        'This deletes the company and ALL of its entries, paychecks, and ' +
+        'time-off settings. This cannot be undone.'
+      );
+      if (!ok) return;
+      b.disabled = true;
+      const deleted = await deleteCompany(company.id);
+      if (!deleted) {
+        b.disabled = false;
+        toast('Could not delete company');
+        return;
+      }
+      // Re-read from the store so state.companies reflects the persisted
+      // rows (and the write-path snapshot is refreshed for future diffs).
+      const companies = await Store.get(SK.companies, null);
+      state.companies = migrateCompanies(companies || [], state.settings);
+      setSyncIdle();
       renderCompaniesList(state);
+      renderPerCompanyPayPeriod(state);
+      toast('Company deleted');
     };
   });
 }
