@@ -129,6 +129,8 @@ export function companyRowToAppShape(row) {
     advancedAnchorDate: row.advanced_anchor_date ?? null,
     advancedCycleDays: row.advanced_cycle_days ?? null,
     isActive: row.is_active ?? null,
+    otThreshold: row.ot_threshold ?? 40,
+    otPeriod: row.ot_period ?? 'weekly',
   };
 }
 
@@ -145,6 +147,8 @@ const COMPANY_UPDATE_FIELDS = [
   ['advancedAnchorDate',  'advanced_anchor_date'],
   ['advancedCycleDays',   'advanced_cycle_days'],
   ['isActive',            'is_active'],
+  ['otThreshold',         'ot_threshold'],
+  ['otPeriod',            'ot_period'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,
@@ -208,7 +212,8 @@ export const RemoteStore = {
           .select(
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
-            ' advanced_anchor_date, advanced_cycle_days, is_active'
+            ' advanced_anchor_date, advanced_cycle_days, is_active,' +
+            ' ot_threshold, ot_period'
           );
         if (error) {
           console.error('[storage] companies read failed:', error);
@@ -842,7 +847,8 @@ export const RemoteStore = {
           .select(
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
-            ' advanced_anchor_date, advanced_cycle_days, is_active'
+            ' advanced_anchor_date, advanced_cycle_days, is_active,' +
+            ' ot_threshold, ot_period'
           );
         writeCache['ts:companies'] = {
           snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),

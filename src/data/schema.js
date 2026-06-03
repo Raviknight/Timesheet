@@ -170,5 +170,7 @@ export function migrateCompanies(companies, settings) {
     advancedAnchorDate:  c.advancedAnchorDate  ?? s.anchorDate    ?? null,
     advancedCycleDays:   c.advancedCycleDays   ?? s.cycleDays     ?? null,
     isActive:            c.isActive            ?? true,
+    otThreshold:         c.otThreshold         ?? 40,
+    otPeriod:            c.otPeriod            ?? 'weekly',
   }));
 }
