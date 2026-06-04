@@ -2,3 +2,9 @@ node_modules/
 .DS_Store
 *.log
 dist/
+
+# graphify: local-only graph artifact (rebuilds via post-commit hook) and CLAUDE.md backup
+graphify-out/
+CLAUDE.md.bak
+# graphify MCP server config holds a machine-specific interpreter path; keep local
+.mcp.json
