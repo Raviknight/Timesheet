@@ -93,6 +93,23 @@ html, body {
 .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 .tab:hover { background: var(--surface-2); }
 
+/* Per-company subtab strip inside the Settings Pay Period card. Reuses the
+   .tab button look (active underline, hover) without the sticky top-nav
+   container behavior of .tabs. */
+.pp-subtabs {
+  display: flex; overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--border); margin-bottom: 10px;
+}
+.pp-subtabs::-webkit-scrollbar { display: none; }
+.pp-subtab {
+  flex: 0 1 auto; padding: 8px 14px; cursor: pointer;
+  border: none; background: none; color: var(--text-2);
+  font-size: 13px; font-weight: 500;
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.pp-subtab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.pp-subtab:hover { background: var(--surface-2); }
+
 .view { padding: 14px; display: none; }
 .view.active { display: block; }
 

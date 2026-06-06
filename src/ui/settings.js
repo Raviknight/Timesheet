@@ -22,6 +22,7 @@ import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
 import { createCompany, deleteCompany } from '../data/bootstrap.js';
+import { activeCompany } from '../data/activeCompany.js';
 import { supabase } from '../data/supabase.js';
 
 // UI state for the per-year override draft form.
@@ -106,6 +107,13 @@ function renderPerCompanyPayPeriod(state) {
     return;
   }
 
+  // Default the visible tab to the user's active company; fall back to the
+  // first active company when that one is inactive or unset.
+  const active = activeCompany(state);
+  const selectedId = activeCompanies.some(c => String(c.id ?? '') === String(active.id ?? ''))
+    ? String(active.id ?? '')
+    : String(activeCompanies[0].id ?? '');
+
   const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const FREQ_OPTIONS = [
     ['weekly',      'Weekly'],
@@ -181,7 +189,8 @@ function renderPerCompanyPayPeriod(state) {
       previewText = 'Complete the fields to preview';
     }
 
-    html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
+    const cardHidden = String(c.id ?? '') === selectedId ? '' : 'display:none;';
+    html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="${cardHidden}border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
       <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px">
         <div style="font-weight:600">${escapeHtml(c.name)}</div>
       </div>
@@ -220,7 +229,31 @@ function renderPerCompanyPayPeriod(state) {
       </div>
     </div>`;
   }
-  list.innerHTML = html;
+  // Tab strip: one tab per active company. With a single company there is no
+  // strip; its card just renders on its own.
+  let tabsHtml = '';
+  if (activeCompanies.length > 1) {
+    const tabs = activeCompanies.map(c => {
+      const id = String(c.id ?? '');
+      const isSel = id === selectedId ? ' active' : '';
+      return `<button type="button" class="pp-subtab${isSel}" data-pp-tab="${escapeHtml(id)}">${escapeHtml(c.name)}</button>`;
+    }).join('');
+    tabsHtml = `<div class="pp-subtabs">${tabs}</div>`;
+  }
+  list.innerHTML = tabsHtml + html;
+
+  // Wire the tab strip: switching tabs swaps which company's card is visible.
+  const tabBtns = list.querySelectorAll('[data-pp-tab]');
+  const cards = list.querySelectorAll('[data-company-id]');
+  tabBtns.forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.ppTab;
+      tabBtns.forEach(b => b.classList.toggle('active', b.dataset.ppTab === id));
+      cards.forEach(card => {
+        card.style.display = card.dataset.companyId === id ? '' : 'none';
+      });
+    };
+  });
 
   // Wire each card: editing toggles conditional visibility and recomputes the
   // preview from the current inputs. No persistence here (save is a later chunk).
