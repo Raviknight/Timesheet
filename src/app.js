@@ -12,10 +12,11 @@ import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
-  migrateEntries, migrateCompanies,
+  migrateEntries, migrateCompanies, timeOffKeyFor,
 } from './data/schema.js';
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
 import { ensureBootstrapped } from './data/bootstrap.js';
+import { activeCompany } from './data/activeCompany.js';
 
 import { renderTopBar, setSync, setSyncIdle } from './ui/topbar.js';
 import { toast } from './ui/toast.js';
@@ -42,6 +43,12 @@ const state = {
   profile: { ...DEFAULT_PROFILE },
   settings: { ...DEFAULT_SETTINGS },
   timeOffTypes: JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES)),
+  // Per-company time-off types, keyed by company_id, for the Settings editor.
+  // The ACTIVE company's entry shares the same array reference as
+  // state.timeOffTypes above, so edits to it flow to the pay math; every other
+  // active company keeps its own array and is persisted under its own key.
+  // Remote (Supabase) only; in local mode this holds just the active company.
+  timeOffByCompany: {},
   companies: [],
   entries: {},
   pays: [],
@@ -152,6 +159,59 @@ async function saveKey(key, value, friendlyName) {
 export { saveKey };
 
 /**
+ * Build state.timeOffByCompany for every active company. The active company's
+ * entry is the SAME array reference as state.timeOffTypes, so the Settings
+ * editor and the pay math stay in sync for it. Other active companies are read
+ * by their own key (remote only), priming each one's write-cache snapshot.
+ *
+ * In local mode (unauthenticated) there is only the single active company, so
+ * we map just that one and never touch the per-company keyed paths.
+ */
+async function loadTimeOffByCompany() {
+  state.timeOffByCompany = {};
+  const activeId = String(activeCompany(state).id ?? '');
+  state.timeOffByCompany[activeId] = state.timeOffTypes;
+
+  if (getStorageMode() !== 'remote') return;
+
+  const actives = Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : [];
+  for (const c of actives) {
+    const cid = String(c.id ?? '');
+    if (!cid || cid === activeId) continue;
+    const types = await Store.get(timeOffKeyFor(cid), null);
+    state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+  }
+}
+
+/**
+ * Load one company's time-off types into state.timeOffByCompany if missing.
+ * Used by the Settings editor when a company is added or activated after boot.
+ * The active company is never overwritten here (it shares state.timeOffTypes).
+ */
+export async function ensureTimeOffForCompany(companyId) {
+  const cid = String(companyId ?? '');
+  if (!cid || state.timeOffByCompany[cid]) return;
+  if (getStorageMode() !== 'remote') {
+    state.timeOffByCompany[cid] = state.timeOffTypes;
+    return;
+  }
+  const types = await Store.get(timeOffKeyFor(cid), null);
+  state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+}
+
+/**
+ * Re-point the active company's per-company entry at the current
+ * state.timeOffTypes array. Call after anything replaces that array wholesale
+ * (import), so the shared-reference invariant for the active company holds.
+ */
+export function syncActiveTimeOff() {
+  const activeId = String(activeCompany(state).id ?? '');
+  state.timeOffByCompany[activeId] = state.timeOffTypes;
+}
+
+/**
  * Called when we detect that the user's Supabase session was lost
  * mid-session (e.g. signed out in another tab). Shows a toast,
  * signs out cleanly to clear any zombie auth state, and routes
@@ -198,6 +258,7 @@ async function loadAll() {
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
   state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
+  await loadTimeOffByCompany();
 
   if (entries) {
     state.entries = migrateEntries(entries);

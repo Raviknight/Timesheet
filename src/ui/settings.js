@@ -10,10 +10,10 @@
  */
 
 import { Store } from '../data/storage.js';
-import { saveKey } from '../app.js';
+import { saveKey, ensureTimeOffForCompany, syncActiveTimeOff } from '../app.js';
 import {
   SK, SCHEMA_VERSION, DEFAULT_PROFILE, DEFAULT_SETTINGS,
-  DEFAULT_TIME_OFF_TYPES, migrateEntries, migrateCompanies,
+  DEFAULT_TIME_OFF_TYPES, migrateEntries, migrateCompanies, timeOffKeyFor,
 } from '../data/schema.js';
 import { getPayPeriodFor, periodLengthDays } from '../core/payPeriod.js';
 import { escapeHtml, formatLong } from '../core/format.js';
@@ -27,7 +27,10 @@ import { supabase } from '../data/supabase.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
-//   { typeIndex: number, year: string, days: string, error: string|null }
+//   { companyId: string, typeIndex: number, year: string, days: string,
+//     error: string|null }
+// companyId scopes the draft to one company's time-off card so it never bleeds
+// across tabs.
 let pbyDraft = null;
 
 export function renderSettings(state) {
@@ -42,7 +45,6 @@ export function renderSettings(state) {
   setVal('setSdSeg2Start', sd.seg2Start || '');
   setVal('setSdSeg2End', sd.seg2End || '');
   refreshStandardDayUI();
-  renderTOTypes(state);
   renderCompaniesList(state);
 }
 
@@ -227,6 +229,11 @@ function renderPerCompanyPayPeriod(state) {
       <div class="row" style="justify-content:flex-end; margin-top:8px">
         <button class="btn btn-sm btn-primary" data-pp-save>Save</button>
       </div>
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border)">
+        <div style="font-weight:600; margin-bottom:8px">Time-Off Types &amp; Pools</div>
+        <div data-toc-for="${escapeHtml(c.id ?? '')}"></div>
+        <button class="btn btn-sm" data-to-add="${escapeHtml(c.id ?? '')}" style="margin-top:8px">+ Add type</button>
+      </div>
     </div>`;
   }
   // Tab strip: one tab per active company. With a single company there is no
@@ -299,7 +306,37 @@ function renderPerCompanyPayPeriod(state) {
         }
       };
     }
+
+    // Time-off types for this company, rendered under its tab next to the
+    // pay-period fields. CRUD is scoped to this company_id.
+    const cid = card.dataset.companyId;
+    const toContainer = card.querySelector('[data-toc-for]');
+    if (toContainer) renderTOTypesForCompany(state, cid, toContainer);
+
+    const addBtn = card.querySelector('[data-to-add]');
+    if (addBtn) {
+      addBtn.onclick = () => {
+        const types = state.timeOffByCompany[cid];
+        if (!types) return;
+        types.push({
+          code: 'NEW', label: 'New Type',
+          poolDays: 0, hoursPerDay: 8, countsAgainstPool: false, additive: false,
+        });
+        saveTimeOff(state, cid).then(ok => { if (ok) setSyncIdle(); });
+        renderTOTypesForCompany(state, cid, toContainer);
+      };
+    }
   });
+}
+
+// Persist one company's time-off types to the right key: the active company
+// goes through SK.timeOff (the same path that feeds the pay math); any other
+// company goes through its own company-scoped key.
+function saveTimeOff(state, companyId) {
+  const types = state.timeOffByCompany[companyId];
+  const activeId = String(activeCompany(state).id ?? '');
+  const key = String(companyId) === activeId ? SK.timeOff : timeOffKeyFor(companyId);
+  return saveKey(key, types, 'Time off');
 }
 
 // Build a clean, DB-appropriate company object from a card's current inputs.
@@ -387,10 +424,21 @@ function updatePpCardPreview(card) {
   }
 }
 
-function renderTOTypes(state) {
-  const list = document.getElementById('timeOffTypesList');
+// Render one company's time-off types into `container`. All CRUD operates on
+// state.timeOffByCompany[companyId] and persists via saveTimeOff (which routes
+// the active company through the math-feeding key and others through their own
+// key). The per-year draft form is scoped to this company via pbyDraft.companyId.
+function renderTOTypesForCompany(state, companyId, container) {
+  const cid = String(companyId);
+  const list = container;
+  const types = state.timeOffByCompany[cid];
+  if (!types) {
+    list.innerHTML = '<div class="muted">Loading…</div>';
+    ensureTimeOffForCompany(cid).then(() => renderTOTypesForCompany(state, cid, container));
+    return;
+  }
   let html = '';
-  state.timeOffTypes.forEach((t, i) => {
+  types.forEach((t, i) => {
     let pbyHtml = '';
     if (t.countsAgainstPool && !t.sharedPoolWith) {
       const overrides = t.poolByYear || {};
@@ -405,7 +453,7 @@ function renderTOTypes(state) {
               <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
             <button class="btn btn-sm" data-pby-del="${i}:${y}">Remove</button>
           </div>`).join('');
-      const isDraftHere = pbyDraft && pbyDraft.typeIndex === i;
+      const isDraftHere = pbyDraft && pbyDraft.companyId === cid && pbyDraft.typeIndex === i;
       let pbyAddSection = '';
       if (isDraftHere) {
         const errHtml = pbyDraft.error
@@ -459,7 +507,7 @@ function renderTOTypes(state) {
         <div class="grow"><label>Shares pool with</label>
           <select data-i="${i}" data-f="sharedPoolWith">
             <option value="">— None —</option>
-            ${state.timeOffTypes.filter((x, j) => j !== i).map(x =>
+            ${types.filter((x, j) => j !== i).map(x =>
               `<option value="${x.code}" ${t.sharedPoolWith === x.code ? 'selected' : ''}>${x.code}</option>`
             ).join('')}
           </select></div>
@@ -472,6 +520,9 @@ function renderTOTypes(state) {
   });
   list.innerHTML = html;
 
+  const rerenderHere = () => renderTOTypesForCompany(state, cid, container);
+  const persist = () => saveTimeOff(state, cid).then(ok => { if (ok) setSyncIdle(); });
+
   list.querySelectorAll('input[data-i],select[data-i]').forEach(inp => {
     inp.onchange = () => {
       const i = +inp.dataset.i;
@@ -479,8 +530,8 @@ function renderTOTypes(state) {
       let v = inp.value;
       if (f === 'poolDays' || f === 'hoursPerDay') v = +v;
       else if (f === 'countsAgainstPool' || f === 'additive') v = v === 'true';
-      state.timeOffTypes[i][f] = v;
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
+      types[i][f] = v;
+      persist();
     };
   });
   list.querySelectorAll('input[data-pby-i]').forEach(inp => {
@@ -488,12 +539,12 @@ function renderTOTypes(state) {
       const i = +inp.dataset.pbyI;
       const oldYear = inp.dataset.pbyYear;
       const f = inp.dataset.pbyF;
-      const t = state.timeOffTypes[i];
+      const t = types[i];
       if (!t.poolByYear) t.poolByYear = {};
       if (f === 'year') {
         const parsed = parseInt(inp.value, 10);
         if (!Number.isFinite(parsed) || parsed < 2000 || parsed > 2100) {
-          renderTOTypes(state);
+          rerenderHere();
           return;
         }
         const newYear = String(parsed);
@@ -505,38 +556,39 @@ function renderTOTypes(state) {
         t.poolByYear[oldYear] = +inp.value;
       }
       if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
-      renderTOTypes(state);
+      persist();
+      rerenderHere();
     };
   });
   list.querySelectorAll('button[data-pby-del]').forEach(btn => {
     btn.onclick = () => {
       const [iStr, y] = btn.dataset.pbyDel.split(':');
-      const t = state.timeOffTypes[+iStr];
+      const t = types[+iStr];
       if (t.poolByYear) {
         delete t.poolByYear[y];
         if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
       }
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
-      renderTOTypes(state);
+      persist();
+      rerenderHere();
     };
   });
   list.querySelectorAll('button[data-pby-add]').forEach(btn => {
     btn.onclick = () => {
       pbyDraft = {
+        companyId: cid,
         typeIndex: +btn.dataset.pbyAdd,
         year: '',
         days: '',
         error: null,
       };
-      renderTOTypes(state);
+      rerenderHere();
     };
   });
 
-  const draftYearInput = document.getElementById('pbyDraftYear');
-  const draftDaysInput = document.getElementById('pbyDraftDays');
-  const draftAddBtn = document.getElementById('pbyDraftAdd');
-  const draftCancelBtn = document.getElementById('pbyDraftCancel');
+  const draftYearInput = list.querySelector('#pbyDraftYear');
+  const draftDaysInput = list.querySelector('#pbyDraftDays');
+  const draftAddBtn = list.querySelector('#pbyDraftAdd');
+  const draftCancelBtn = list.querySelector('#pbyDraftCancel');
 
   if (draftYearInput) {
     draftYearInput.oninput = () => { pbyDraft.year = draftYearInput.value; };
@@ -547,7 +599,7 @@ function renderTOTypes(state) {
   if (draftCancelBtn) {
     draftCancelBtn.onclick = () => {
       pbyDraft = null;
-      renderTOTypes(state);
+      rerenderHere();
     };
   }
   if (draftAddBtn) {
@@ -556,34 +608,34 @@ function renderTOTypes(state) {
       const days = parseFloat(pbyDraft.days);
       if (!Number.isFinite(yr) || yr < 2000 || yr > 2100) {
         pbyDraft.error = 'Year must be between 2000 and 2100.';
-        renderTOTypes(state);
+        rerenderHere();
         return;
       }
       if (!Number.isFinite(days) || days < 0) {
         pbyDraft.error = 'Days must be 0 or greater.';
-        renderTOTypes(state);
+        rerenderHere();
         return;
       }
-      const t = state.timeOffTypes[pbyDraft.typeIndex];
+      const t = types[pbyDraft.typeIndex];
       if (!t.poolByYear) t.poolByYear = {};
       const yrKey = String(yr);
       if (t.poolByYear[yrKey] != null) {
         pbyDraft.error = `Override for ${yrKey} already exists. Edit the existing row instead.`;
-        renderTOTypes(state);
+        rerenderHere();
         return;
       }
       t.poolByYear[yrKey] = days;
       pbyDraft = null;
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
-      renderTOTypes(state);
+      persist();
+      rerenderHere();
     };
   }
   list.querySelectorAll('button[data-del]').forEach(btn => {
     btn.onclick = () => {
-      if (!confirm(`Remove ${state.timeOffTypes[+btn.dataset.del].label}?`)) return;
-      state.timeOffTypes.splice(+btn.dataset.del, 1);
-      saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
-      renderTOTypes(state);
+      if (!confirm(`Remove ${types[+btn.dataset.del].label}?`)) return;
+      types.splice(+btn.dataset.del, 1);
+      persist();
+      rerenderHere();
     };
   });
 }
@@ -700,15 +752,6 @@ export function wireSettings(state, { saveAll }) {
     toast('Standard day saved');
   };
 
-  document.getElementById('btnAddTOType').onclick = () => {
-    state.timeOffTypes.push({
-      code: 'NEW', label: 'New Type',
-      poolDays: 0, hoursPerDay: 8, countsAgainstPool: false, additive: false,
-    });
-    saveKey(SK.timeOff, state.timeOffTypes, 'Time off').then(ok => { if (ok) setSyncIdle(); });
-    renderTOTypes(state);
-  };
-
   document.getElementById('btnAddCompany').onclick = async () => {
     const input = document.getElementById('newCompany');
     const btn = document.getElementById('btnAddCompany');
@@ -799,6 +842,10 @@ export function wireSettings(state, { saveAll }) {
       if (data.entries) state.entries = migrateEntries(data.entries);
       if (data.pays) state.pays = data.pays;
       await saveAll();
+      // Import replaced state.timeOffTypes wholesale; re-point the active
+      // company's per-company entry at the new array so the Settings editor and
+      // the pay math stay on the same reference.
+      syncActiveTimeOff();
       renderTopBar(state.profile);
       renderSettings(state);
       toast('Imported');
@@ -814,6 +861,7 @@ export function wireSettings(state, { saveAll }) {
     state.profile = { ...DEFAULT_PROFILE };
     state.settings = { ...DEFAULT_SETTINGS };
     state.timeOffTypes = JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+    state.timeOffByCompany = {};
     state.companies = [];
     state.entries = {};
     state.pays = [];

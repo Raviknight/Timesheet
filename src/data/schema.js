@@ -25,6 +25,16 @@ export const SK = {
   schema: 'ts:schemaVersion',
 };
 
+/**
+ * Storage key for a SPECIFIC company's time-off types, scoped by company_id.
+ * `SK.timeOff` (no suffix) reads/writes the profile's ACTIVE company and feeds
+ * the pay math via state.timeOffTypes; this suffixed form addresses any other
+ * active company for the per-company Settings editor. Remote (Supabase) only.
+ */
+export function timeOffKeyFor(companyId) {
+  return SK.timeOff + ':' + companyId;
+}
+
 export const DEFAULT_PROFILE = {
   userId: 'me',
   name: 'You',

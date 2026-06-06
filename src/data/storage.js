@@ -168,6 +168,164 @@ export function diffCompanyForUpdate(newApp, oldApp) {
 }
 
 // ===========================================================================
+// Time-off types: shared row↔app-shape mapping + company-scoped read/write.
+// The active company is addressed by SK.timeOff ('ts:timeOffTypes'); any other
+// company is addressed by 'ts:timeOffTypes:<companyId>'. Both go through the
+// same helpers so the model and diff logic live in one place. The write cache
+// is keyed by the SAME storage key, so each company keeps its own snapshot.
+// ===========================================================================
+
+function timeOffRowToAppShape(t) {
+  const obj = {
+    code: t.code,
+    label: t.label,
+    poolDays: t.pool_days,
+    hoursPerDay: t.hours_per_day,
+    countsAgainstPool: t.counts_against_pool,
+    sharedPoolWith: t.shared_pool_with,
+    unpaid: t.unpaid,
+    additive: t.additive,
+  };
+  if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
+    obj.poolByYear = t.pool_by_year;
+  }
+  return obj;
+}
+
+function timeOffRowFromAppShape(t, companyId) {
+  return {
+    company_id: companyId,
+    code: t.code,
+    label: t.label,
+    pool_days: t.poolDays || 0,
+    hours_per_day: t.hoursPerDay || 8,
+    counts_against_pool: !!t.countsAgainstPool,
+    shared_pool_with: t.sharedPoolWith || null,
+    unpaid: !!t.unpaid,
+    additive: !!t.additive,
+    pool_by_year: t.poolByYear || {},
+  };
+}
+
+// Read one company's time_off_types and cache the snapshot under `cacheKey`.
+// Returns `fallback` when the company has no rows (mirrors the original
+// active-company behavior so defaults seed an empty company).
+async function readTimeOffTypes(companyId, cacheKey, fallback) {
+  const { data, error } = await supabase
+    .from('time_off_types')
+    .select('*')
+    .eq('company_id', companyId);
+  if (error) {
+    console.error('[storage] time_off_types read failed:', error);
+    return fallback;
+  }
+
+  const out = (data || []).map(timeOffRowToAppShape);
+  writeCache[cacheKey] = {
+    snapshot: JSON.parse(JSON.stringify(out)),
+    companyId,
+  };
+
+  if ((data || []).length === 0) return fallback;
+  return out;
+}
+
+// Diff `value` against the snapshot cached under `cacheKey` and apply the
+// insert/update/delete to that company's time_off_types. Refuses to write
+// without a load-time cache so we never full-write from an unknown baseline.
+async function writeTimeOffTypes(value, cacheKey) {
+  const cache = writeCache[cacheKey];
+  if (!cache || !cache.companyId) {
+    console.error('[storage] time_off_types write attempted without a load-time cache; refusing to write');
+    return false;
+  }
+  const companyId = cache.companyId;
+  const newSnap = value || [];
+  const oldSnap = cache.snapshot || [];
+
+  const oldByCode = {};
+  for (const t of oldSnap) oldByCode[t.code] = t;
+  const newByCode = {};
+  for (const t of newSnap) newByCode[t.code] = t;
+
+  const toInsert = [];
+  const toUpdate = [];
+  const toDelete = [];
+
+  for (const code of Object.keys(newByCode)) {
+    const newT = newByCode[code];
+    const oldT = oldByCode[code];
+    if (!oldT) {
+      toInsert.push(timeOffRowFromAppShape(newT, companyId));
+    } else if (JSON.stringify(oldT) !== JSON.stringify(newT)) {
+      toUpdate.push(timeOffRowFromAppShape(newT, companyId));
+    }
+  }
+  for (const code of Object.keys(oldByCode)) {
+    if (!newByCode[code]) toDelete.push(code);
+  }
+
+  if (toInsert.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
+    return true;
+  }
+
+  if (toInsert.length > 0) {
+    const { error: insertErr } = await supabase
+      .from('time_off_types')
+      .insert(toInsert);
+    if (insertErr) {
+      console.error('[storage] time_off_types insert failed:', insertErr);
+      return false;
+    }
+  }
+
+  for (const row of toUpdate) {
+    const { error: updateErr } = await supabase
+      .from('time_off_types')
+      .update({
+        label: row.label,
+        pool_days: row.pool_days,
+        hours_per_day: row.hours_per_day,
+        counts_against_pool: row.counts_against_pool,
+        shared_pool_with: row.shared_pool_with,
+        unpaid: row.unpaid,
+        additive: row.additive,
+        pool_by_year: row.pool_by_year,
+      })
+      .eq('company_id', row.company_id)
+      .eq('code', row.code);
+    if (updateErr) {
+      console.error('[storage] time_off_types update failed:', updateErr);
+      return false;
+    }
+  }
+
+  for (const code of toDelete) {
+    const { error: deleteErr } = await supabase
+      .from('time_off_types')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('code', code);
+    if (deleteErr) {
+      console.error('[storage] time_off_types delete failed:', deleteErr);
+      return false;
+    }
+  }
+
+  // Refresh cache from server to keep the snapshot accurate.
+  const { data: refreshed } = await supabase
+    .from('time_off_types')
+    .select('*')
+    .eq('company_id', companyId);
+  writeCache[cacheKey] = {
+    snapshot: JSON.parse(JSON.stringify((refreshed || []).map(timeOffRowToAppShape))),
+    companyId,
+  };
+
+  return true;
+}
+
+// ===========================================================================
 // RemoteStore — Supabase backed (stub in 5b.1, filled in 5b.2+)
 // ===========================================================================
 
@@ -238,40 +396,16 @@ export const RemoteStore = {
           writeCache['ts:timeOffTypes'] = { snapshot: [], companyId: null };
           return fallback;
         }
+        return readTimeOffTypes(companyId, 'ts:timeOffTypes', fallback);
+      }
 
-        const { data, error } = await supabase
-          .from('time_off_types')
-          .select('*')
-          .eq('company_id', companyId);
-        if (error) {
-          console.error('[storage] time_off_types read failed:', error);
-          return fallback;
-        }
-
-        const out = (data || []).map(t => {
-          const obj = {
-            code: t.code,
-            label: t.label,
-            poolDays: t.pool_days,
-            hoursPerDay: t.hours_per_day,
-            countsAgainstPool: t.counts_against_pool,
-            sharedPoolWith: t.shared_pool_with,
-            unpaid: t.unpaid,
-            additive: t.additive,
-          };
-          if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
-            obj.poolByYear = t.pool_by_year;
-          }
-          return obj;
-        });
-
-        writeCache['ts:timeOffTypes'] = {
-          snapshot: JSON.parse(JSON.stringify(out)),
-          companyId,
-        };
-
-        if ((data || []).length === 0) return fallback;
-        return out;
+      // Per-company time-off, addressed by 'ts:timeOffTypes:<companyId>'. Used
+      // by the Settings editor to read any active company without disturbing
+      // the active-company cache that feeds the pay math.
+      if (key.startsWith('ts:timeOffTypes:')) {
+        const companyId = key.slice('ts:timeOffTypes:'.length);
+        if (!companyId) return fallback;
+        return readTimeOffTypes(companyId, key, fallback);
       }
 
       if (key === 'ts:entries') {
@@ -678,130 +812,14 @@ export const RemoteStore = {
       }
 
       if (key === 'ts:timeOffTypes') {
-        const cache = writeCache['ts:timeOffTypes'];
-        if (!cache || !cache.companyId) {
-          console.error('[storage] time_off_types write attempted without a load-time cache; refusing to write');
-          return false;
-        }
-        const companyId = cache.companyId;
-        const newSnap = value || [];
-        const oldSnap = cache.snapshot || [];
+        return writeTimeOffTypes(value, 'ts:timeOffTypes');
+      }
 
-        const oldByCode = {};
-        for (const t of oldSnap) {
-          oldByCode[t.code] = t;
-        }
-        const newByCode = {};
-        for (const t of newSnap) {
-          newByCode[t.code] = t;
-        }
-
-        const toInsert = [];
-        const toUpdate = [];
-        const toDelete = [];
-
-        function rowFromAppShape(t) {
-          return {
-            company_id: companyId,
-            code: t.code,
-            label: t.label,
-            pool_days: t.poolDays || 0,
-            hours_per_day: t.hoursPerDay || 8,
-            counts_against_pool: !!t.countsAgainstPool,
-            shared_pool_with: t.sharedPoolWith || null,
-            unpaid: !!t.unpaid,
-            additive: !!t.additive,
-            pool_by_year: t.poolByYear || {},
-          };
-        }
-
-        for (const code of Object.keys(newByCode)) {
-          const newT = newByCode[code];
-          const oldT = oldByCode[code];
-          if (!oldT) {
-            toInsert.push(rowFromAppShape(newT));
-          } else if (JSON.stringify(oldT) !== JSON.stringify(newT)) {
-            toUpdate.push(rowFromAppShape(newT));
-          }
-        }
-        for (const code of Object.keys(oldByCode)) {
-          if (!newByCode[code]) toDelete.push(code);
-        }
-
-        if (toInsert.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
-          return true;
-        }
-
-        if (toInsert.length > 0) {
-          const { error: insertErr } = await supabase
-            .from('time_off_types')
-            .insert(toInsert);
-          if (insertErr) {
-            console.error('[storage] time_off_types insert failed:', insertErr);
-            return false;
-          }
-        }
-
-        for (const row of toUpdate) {
-          const { error: updateErr } = await supabase
-            .from('time_off_types')
-            .update({
-              label: row.label,
-              pool_days: row.pool_days,
-              hours_per_day: row.hours_per_day,
-              counts_against_pool: row.counts_against_pool,
-              shared_pool_with: row.shared_pool_with,
-              unpaid: row.unpaid,
-              additive: row.additive,
-              pool_by_year: row.pool_by_year,
-            })
-            .eq('company_id', row.company_id)
-            .eq('code', row.code);
-          if (updateErr) {
-            console.error('[storage] time_off_types update failed:', updateErr);
-            return false;
-          }
-        }
-
-        for (const code of toDelete) {
-          const { error: deleteErr } = await supabase
-            .from('time_off_types')
-            .delete()
-            .eq('company_id', companyId)
-            .eq('code', code);
-          if (deleteErr) {
-            console.error('[storage] time_off_types delete failed:', deleteErr);
-            return false;
-          }
-        }
-
-        // Refresh cache from server to keep snapshot accurate.
-        const { data: refreshed } = await supabase
-          .from('time_off_types')
-          .select('*')
-          .eq('company_id', companyId);
-        const refreshedShape = (refreshed || []).map(t => {
-          const obj = {
-            code: t.code,
-            label: t.label,
-            poolDays: t.pool_days,
-            hoursPerDay: t.hours_per_day,
-            countsAgainstPool: t.counts_against_pool,
-            sharedPoolWith: t.shared_pool_with,
-            unpaid: t.unpaid,
-            additive: t.additive,
-          };
-          if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
-            obj.poolByYear = t.pool_by_year;
-          }
-          return obj;
-        });
-        writeCache['ts:timeOffTypes'] = {
-          snapshot: JSON.parse(JSON.stringify(refreshedShape)),
-          companyId,
-        };
-
-        return true;
+      // Per-company time-off write, addressed by 'ts:timeOffTypes:<companyId>'.
+      // Diffs against that company's own cached snapshot; never touches the
+      // active-company cache.
+      if (key.startsWith('ts:timeOffTypes:')) {
+        return writeTimeOffTypes(value, key);
       }
 
       if (key === 'ts:companies') {
