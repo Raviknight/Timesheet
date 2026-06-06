@@ -3,7 +3,7 @@
  *
  * Time and date helpers, plus the canonical "hours worked" calculation.
  *
- * Rules encoded here (do not change without updating docs/EXCEL_LOGIC.md):
+ * Rules encoded here (do not change without updating docs/LOGIC.md):
  *   1. Clock in/out times are rounded to the nearest 15 minutes.
  *   2. Break is deducted when the segment is flagged as breakTaken AND
  *      the segment is > 5h. The user owns the day-of-week judgment via

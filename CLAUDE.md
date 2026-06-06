@@ -22,7 +22,7 @@ integration.
 | Current state + what's next      | `docs/CONTEXT.md`             |
 | Architecture decisions made      | `docs/DECISIONS.md`           |
 | How to run / build / deploy      | `README.md`                   |
-| The Excel logic this replaces    | `docs/EXCEL_LOGIC.md`         |
+| The app's payroll business rules | `docs/LOGIC.md`               |
 | Roadmap / future expansion       | `docs/ROADMAP.md`             |
 
 Each `src/` subfolder has its own short header comment in every file

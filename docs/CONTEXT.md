@@ -355,7 +355,7 @@ Known issues to address next session:
 - Added esbuild build script that produces `dist/timesheet.html` (single
   distributable file)
 - Wrote `CLAUDE.md`, `CONTEXT.md`, `README.md`, `docs/DECISIONS.md`,
-  `docs/ROADMAP.md`, `docs/EXCEL_LOGIC.md`
+  `docs/ROADMAP.md`, `docs/LOGIC.md` (originally `docs/EXCEL_LOGIC.md`)
 - Kept all previous functionality intact, including the 128-entry + 88-pay
   first-run seed
 
