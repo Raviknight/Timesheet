@@ -33,18 +33,8 @@ export const DEFAULT_PROFILE = {
 };
 
 export const DEFAULT_SETTINGS = {
-  // Pay period config
-  system: 'biweekly',        // weekly | biweekly | semimonthly | monthly | advanced
-  startDow: 1,               // 0=Sun..6=Sat (weekly + biweekly)
-  biweeklyRef: '2025-12-29', // reference period start
-  semi1: 1,                  // semi-monthly first day-of-month
-  semi2: 16,                 // semi-monthly second day-of-month
-  monthlyStart: 1,           // monthly day-of-month
-  anchorDate: '2025-12-29',  // advanced mode
-  cycleDays: 14,             // advanced mode
-
-  // Calculation rules
-  otThreshold: 40,           // hours/week before OT kicks in
+  // Calculation rules. Pay-period and OT config now live per-company
+  // (see migrateCompanies); only the break length remains a user setting.
   breakMinutes: 30,          // default break deducted on segments > 5h
 };
 
@@ -150,25 +140,23 @@ export function migrateEntries(entries) {
 }
 
 /**
- * v2 → v3: pay-period configuration moved from user-level settings onto
- * each company. For LocalStore-mode users (no Supabase), copy the
- * existing settings fields onto every company that doesn't already carry
- * them. Remote-mode rows get the same data via the SQL migration; this
- * helper is also harmless on remote since it only fills `??` gaps.
+ * Fill any missing pay-period and OT fields on each company with defaults.
+ * Pay-period configuration lives per-company; the old v2 user-level settings
+ * fields that once seeded these (system, startDow, semi1/2, monthlyStart,
+ * anchorDate, cycleDays) have been retired, so this only fills `??` gaps.
  */
-export function migrateCompanies(companies, settings) {
+export function migrateCompanies(companies) {
   if (!Array.isArray(companies)) return companies;
-  const s = settings || {};
   return companies.map(c => ({
     ...c,
-    payFrequency:        c.payFrequency        ?? s.system        ?? 'biweekly',
-    weekStartDow:        c.weekStartDow        ?? s.startDow      ?? 1,
+    payFrequency:        c.payFrequency        ?? 'biweekly',
+    weekStartDow:        c.weekStartDow        ?? 1,
     biweeklyStartParity: c.biweeklyStartParity ?? 'odd',
-    semiFirstDay:        c.semiFirstDay        ?? s.semi1         ?? null,
-    semiSecondDay:       c.semiSecondDay       ?? s.semi2         ?? null,
-    monthlyStartDay:     c.monthlyStartDay     ?? s.monthlyStart  ?? null,
-    advancedAnchorDate:  c.advancedAnchorDate  ?? s.anchorDate    ?? null,
-    advancedCycleDays:   c.advancedCycleDays   ?? s.cycleDays     ?? null,
+    semiFirstDay:        c.semiFirstDay        ?? null,
+    semiSecondDay:       c.semiSecondDay       ?? null,
+    monthlyStartDay:     c.monthlyStartDay     ?? null,
+    advancedAnchorDate:  c.advancedAnchorDate  ?? null,
+    advancedCycleDays:   c.advancedCycleDays   ?? null,
     isActive:            c.isActive            ?? true,
     otThreshold:         c.otThreshold         ?? 40,
     otPeriod:            c.otPeriod            ?? 'weekly',

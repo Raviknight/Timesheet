@@ -197,7 +197,7 @@ async function loadAll() {
     delete state.settings.standard_day.breakMinutes;
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
-  state.companies = migrateCompanies(companies || [...SEED_COMPANIES], state.settings);
+  state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
 
   if (entries) {
     state.entries = migrateEntries(entries);

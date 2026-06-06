@@ -622,7 +622,7 @@ function renderCompaniesList(state) {
       // Re-read from the store so state.companies reflects the persisted
       // rows (and the write-path snapshot is refreshed for future diffs).
       const companies = await Store.get(SK.companies, null);
-      state.companies = migrateCompanies(companies || [], state.settings);
+      state.companies = migrateCompanies(companies || []);
       setSyncIdle();
       renderCompaniesList(state);
       renderPerCompanyPayPeriod(state);
@@ -687,7 +687,7 @@ export function wireSettings(state, { saveAll }) {
       // Re-read from the store so state.companies reflects the persisted
       // rows (and the write-path snapshot is refreshed for future diffs).
       const companies = await Store.get(SK.companies, null);
-      state.companies = migrateCompanies(companies || [], state.settings);
+      state.companies = migrateCompanies(companies || []);
       input.value = '';
       setSyncIdle();
       renderCompaniesList(state);
@@ -762,7 +762,7 @@ export function wireSettings(state, { saveAll }) {
       if (data.profile) state.profile = data.profile;
       if (data.settings) state.settings = data.settings;
       if (data.timeOffTypes) state.timeOffTypes = data.timeOffTypes;
-      if (data.companies) state.companies = migrateCompanies(data.companies, state.settings);
+      if (data.companies) state.companies = migrateCompanies(data.companies);
       if (data.entries) state.entries = migrateEntries(data.entries);
       if (data.pays) state.pays = data.pays;
       await saveAll();
