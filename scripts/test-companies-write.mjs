@@ -165,10 +165,17 @@ const writes_C = simulateWritePath(
 eq('write loop: unknown id is skipped (no INSERT path here)', writes_C, []);
 
 // ---------------------------------------------------------------------------
-// 4. migrateCompanies fills v2 → v3 fields from user-level settings.
+// 4. migrateCompanies fills missing columns with per-company defaults.
+//
+// As of 3e.5 (commit 2b08341) it no longer reads user-level settings: the old
+// v2 → v3 settings bridge (system/semi1/semi2/monthlyStart/anchorDate/...) was
+// removed. Pay-period config now lives on each company's own columns, and a
+// company that lacks them gets the per-company defaults, NOT values copied from
+// settings. We pass a populated settings object below purely to prove it is
+// ignored.
 // ---------------------------------------------------------------------------
 
-const v2Settings = {
+const ignoredSettings = {
   system: 'biweekly',
   startDow: 1,
   biweeklyRef: '2025-12-28',
@@ -184,10 +191,11 @@ const v2Companies = [
   { id: 'y', name: 'Y', payFrequency: 'monthly' },           // partial: keep its own freq
 ];
 
-const migrated = migrateCompanies(v2Companies, v2Settings);
+// Second argument is ignored; passed to assert the settings bridge is gone.
+const migrated = migrateCompanies(v2Companies, ignoredSettings);
 
 eq(
-  'migrate: empty company gets all defaults from settings + odd parity',
+  'migrate: empty company gets per-company defaults, ignoring user settings',
   migrated[0],
   {
     id: 'x',
@@ -195,11 +203,14 @@ eq(
     payFrequency: 'biweekly',
     weekStartDow: 1,
     biweeklyStartParity: 'odd',
-    semiFirstDay: 1,
-    semiSecondDay: 16,
-    monthlyStartDay: 1,
-    advancedAnchorDate: '2025-12-29',
-    advancedCycleDays: 14,
+    semiFirstDay: null,
+    semiSecondDay: null,
+    monthlyStartDay: null,
+    advancedAnchorDate: null,
+    advancedCycleDays: null,
+    isActive: true,
+    otThreshold: 40,
+    otPeriod: 'weekly',
   }
 );
 
@@ -210,7 +221,7 @@ eq(
 );
 
 eq(
-  'migrate: partial company still inherits weekStartDow from settings',
+  'migrate: partial company gets the default weekStartDow, not a settings value',
   migrated[1].weekStartDow,
   1
 );
