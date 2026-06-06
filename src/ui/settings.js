@@ -27,10 +27,11 @@ import { supabase } from '../data/supabase.js';
 
 // UI state for the per-year override draft form.
 // null when no draft is active. When active:
-//   { companyId: string, typeIndex: number, year: string, days: string,
+//   { companyId: string, typeCode: string, year: string, days: string,
 //     error: string|null }
-// companyId scopes the draft to one company's time-off card so it never bleeds
-// across tabs.
+// companyId scopes the draft to one company's time-off card; typeCode binds it
+// to a time-off type by its stable identity (company_id + code), never by list
+// position, since time_off_types rows come back in no guaranteed order.
 let pbyDraft = null;
 
 export function renderSettings(state) {
@@ -448,12 +449,12 @@ function renderTOTypesForCompany(state, companyId, container) {
         : years.map(y => `
           <div class="row" style="margin-bottom:4px; align-items:flex-end; gap:6px">
             <div style="flex:0 0 90px"><label>Year</label>
-              <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="year" min="2000" max="2100" step="1" value="${y}"></div>
+              <input type="number" data-pby-code="${escapeHtml(t.code)}" data-pby-year="${y}" data-pby-f="year" min="2000" max="2100" step="1" value="${y}"></div>
             <div style="flex:0 0 110px"><label>Days</label>
-              <input type="number" data-pby-i="${i}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
-            <button class="btn btn-sm" data-pby-del="${i}:${y}">Remove</button>
+              <input type="number" data-pby-code="${escapeHtml(t.code)}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
+            <button class="btn btn-sm" data-pby-del-code="${escapeHtml(t.code)}" data-pby-del-year="${y}">Remove</button>
           </div>`).join('');
-      const isDraftHere = pbyDraft && pbyDraft.companyId === cid && pbyDraft.typeIndex === i;
+      const isDraftHere = pbyDraft && pbyDraft.companyId === cid && pbyDraft.typeCode === t.code;
       let pbyAddSection = '';
       if (isDraftHere) {
         const errHtml = pbyDraft.error
@@ -473,7 +474,7 @@ function renderTOTypesForCompany(state, companyId, container) {
             ${errHtml}
           </div>`;
       } else {
-        pbyAddSection = `<button class="btn btn-sm" data-pby-add="${i}" style="margin-top:8px">Add year override</button>`;
+        pbyAddSection = `<button class="btn btn-sm" data-pby-add="${escapeHtml(t.code)}" style="margin-top:8px">Add year override</button>`;
       }
       pbyHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
         <div class="muted" style="font-size:0.85em; margin-bottom:2px">Per-year overrides</div>
@@ -534,12 +535,13 @@ function renderTOTypesForCompany(state, companyId, container) {
       persist();
     };
   });
-  list.querySelectorAll('input[data-pby-i]').forEach(inp => {
+  list.querySelectorAll('input[data-pby-code]').forEach(inp => {
     inp.onchange = () => {
-      const i = +inp.dataset.pbyI;
+      const code = inp.dataset.pbyCode;
       const oldYear = inp.dataset.pbyYear;
       const f = inp.dataset.pbyF;
-      const t = types[i];
+      const t = types.find(x => x.code === code);
+      if (!t) { rerenderHere(); return; }
       if (!t.poolByYear) t.poolByYear = {};
       if (f === 'year') {
         const parsed = parseInt(inp.value, 10);
@@ -560,11 +562,12 @@ function renderTOTypesForCompany(state, companyId, container) {
       rerenderHere();
     };
   });
-  list.querySelectorAll('button[data-pby-del]').forEach(btn => {
+  list.querySelectorAll('button[data-pby-del-code]').forEach(btn => {
     btn.onclick = () => {
-      const [iStr, y] = btn.dataset.pbyDel.split(':');
-      const t = types[+iStr];
-      if (t.poolByYear) {
+      const code = btn.dataset.pbyDelCode;
+      const y = btn.dataset.pbyDelYear;
+      const t = types.find(x => x.code === code);
+      if (t && t.poolByYear) {
         delete t.poolByYear[y];
         if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
       }
@@ -576,7 +579,7 @@ function renderTOTypesForCompany(state, companyId, container) {
     btn.onclick = () => {
       pbyDraft = {
         companyId: cid,
-        typeIndex: +btn.dataset.pbyAdd,
+        typeCode: btn.dataset.pbyAdd,
         year: '',
         days: '',
         error: null,
@@ -616,7 +619,8 @@ function renderTOTypesForCompany(state, companyId, container) {
         rerenderHere();
         return;
       }
-      const t = types[pbyDraft.typeIndex];
+      const t = types.find(x => x.code === pbyDraft.typeCode);
+      if (!t) { pbyDraft = null; rerenderHere(); return; }
       if (!t.poolByYear) t.poolByYear = {};
       const yrKey = String(yr);
       if (t.poolByYear[yrKey] != null) {
