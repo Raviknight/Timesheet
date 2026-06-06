@@ -3,21 +3,51 @@
 Living document. Updated at the end of every working session so the next
 Claude (or future-you) can pick up without re-reading the whole chat history.
 
-## Current state (as of May 18, 2026)
+## Current state (as of June 6, 2026)
 
-Refactored from a single 1800-line HTML file into a modular ES-module project
-that bundles to a single distributable file for production. Same features as
-before:
+Modular ES-module project that bundles to a single distributable file for
+production. Core features:
 
 - Multi-segment daily entries (clock out for personal, clock back in later)
 - Per-segment break deduction (> 5h on weekdays only)
-- Pay period systems: weekly, bi-weekly, semi-monthly, monthly, advanced
-  (anchor date + custom cycle length)
 - Time-off pools with Taken / Scheduled / Remaining split
 - Paycheck tracking with YTD totals
-- Companies + role scaffolding (owner/employee/supervisor/admin)
-- Cross-device sync via Anthropic `window.storage`, falls back to
-  `localStorage` for plain-file use
+- Cross-device sync via Supabase, falls back to `localStorage` for plain-file
+  use
+
+**Pay periods and overtime are now per-company, not per-user.** Each company
+carries its own pay-period config plus an OT threshold and OT period. The
+landing Dashboard reads the active company and windows OT accordingly:
+
+- Pay period systems: weekly, bi-weekly, semi-monthly, monthly, advanced
+  (anchor date + custom cycle length), selected per company.
+- Companies have a full lifecycle: add, activate/deactivate, and a guarded
+  delete (you cannot delete the last/active company out from under the app).
+- Overtime is per-company: `ot_threshold` (default 40) and `ot_period`
+  (weekly / biweekly / semimonthly / monthly). The Dashboard splits Regular
+  vs OT on worked hours only, over the active company's OT window. OT is no
+  longer on the user-level Hours card.
+
+**OT windowing model (and its boundary).** OT is measured over the active
+company's `otPeriod` window:
+
+- weekly: one window per split week
+- biweekly: consecutive split weeks paired into 2-week blocks (a leftover
+  single week is its own block)
+- semimonthly: half-month windows split at `semiSecondDay` (default 16)
+- monthly: calendar month
+
+Only actually worked hours count toward the threshold (`computeHoursWorked`);
+Holiday and PTO/Sick do not push the worked total over OT. The split is
+accurate when `otPeriod` is equal to or shorter than the pay frequency. A
+window longer than the pay period under-counts OT, because the Dashboard only
+sees entries inside the current pay period. There is no OT-period option for
+semimonthly-as-pay or for the advanced cycle, by design.
+
+Tooling: a graphify knowledge graph now lives in `graphify-out/`, with CLI
+routing rules in `CLAUDE.md` and a post-commit refresh to keep it current.
+
+License: PolyForm Noncommercial (source-available).
 
 Seeded with Ravi's 128 daily entries (Dec 29, 2025 → forward) and 88 pay
 records from `Time_Sheet_2026.xlsx`.
@@ -48,6 +78,19 @@ primary user anywhere. Step 5.5 (legacy Excel import) will target
 raviknight@outlook.com, not ravismla.
 
 ## Next likely tasks
+
+### Immediate next (Phase 3e)
+
+1. **3e.5: drop the dead settings JSON fields.** Remove the now-unused
+   user-level pay-period fields (`system`, `startDow`, `biweeklyRef`, `semi1`,
+   `semi2`, `monthlyStart`, `anchorDate`, `cycleDays`) plus the orphaned
+   `otThreshold`, all superseded by the per-company config. Ship a migration
+   so existing stored settings are cleaned up on load.
+2. **3e.7: per-company Standard Day and time-off behind per-company tabs.**
+   Decision recorded: use tabs, one per active company, so each company's
+   Standard Day and time-off types are edited in isolation.
+
+### Longer deferred backlog
 
 In rough priority order:
 
@@ -104,6 +147,41 @@ close any open modals before calling showAuthView. One-line
 addition once we know where modal close handlers live.
 
 ## Session log
+
+### June 6, 2026: Per-company pay period + overtime (3e.4 / 3e.4b / 3e.4c) and cleanup
+
+Moved pay period and overtime off the user and onto the company.
+
+**3e.4: per-company Pay Period settings.** Each company carries its own
+pay-period config. The Dashboard reads the active company and ranges the
+period from it.
+
+**3e.4b: companies lifecycle.** Add a company, activate/deactivate it, and a
+guarded delete so the app is never left without an active company.
+
+**3e.4c: per-company overtime.** Companies gained `ot_threshold` and
+`ot_period`. Settings has a per-company OT UI. The Dashboard windows OT by
+`ot_period`: weekly per week, biweekly as paired weeks, semimonthly as
+half-month halves split at `semiSecondDay`, monthly as calendar month. OT was
+removed from the user-level Hours card.
+
+**OT windowing model and its boundary.** OT is measured over the active
+company's OT window on worked hours only (`computeHoursWorked`). Holiday and
+PTO/Sick never push the worked total over the threshold. Accurate when
+`otPeriod` is equal to or shorter than the pay frequency; a longer window
+under-counts OT because the Dashboard only sees entries in the current pay
+period. No OT-period option exists for semimonthly-as-pay or for advanced, by
+design.
+
+**Cleanup.** Removed the legacy user-level Pay Period settings block and
+deleted `src/core/period.js` (the per-date pay-period math now lives in
+`src/core/payPeriod.js`). Break duration consolidated onto the Hours card
+(`#setHoursBreak`), with Standard Day's live total repointed to it.
+
+**Tooling.** Added a graphify knowledge graph (`graphify-out/`) with CLI
+routing rules in `CLAUDE.md` and a post-commit refresh hook.
+
+**License.** Adopted PolyForm Noncommercial (source-available).
 
 ### June 2, 2026 — Companies table: three production-severity fixes
 

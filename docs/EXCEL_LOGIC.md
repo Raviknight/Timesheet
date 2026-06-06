@@ -66,12 +66,28 @@ employers use different cycles.
 **Rules encoded:**
 
 - OT calculated per ISO week, not per pay period
-- Time-off hours (PTO/Sick/Unpaid) don't count toward the OT threshold
-- Holiday hours DO count (since they're paid as worked time)
+- Only actually worked hours count toward the OT threshold. Worked hours are
+  the sum of clocked segments (`computeHoursWorked`), nothing else.
+- No time-off counts toward the OT threshold. That includes Holiday: its paid
+  hours are an additive bonus that lands in the Holiday bucket, not in the
+  OT-eligible worked total. PTO, Sick, and Unpaid likewise stay out of the
+  worked total and land in the Time off bucket.
 - Threshold is 40h per week
 
-**Web app version:** `src/ui/dashboard.js` computes per-week regular vs OT,
-configurable threshold via `settings.otThreshold`.
+This is the worked-versus-paid split. "Worked" is segment hours only and is
+what OT is measured against. "Paid" is `computeHoursPaid`: segment hours, plus
+the type's hours for an additive type like Holiday, or the type's hours when a
+non-additive type (PTO/Sick/Unpaid) has no segments. Totals and balances use
+paid hours; OT uses worked hours.
+
+**Web app version:** `src/ui/dashboard.js` computes regular vs OT on worked
+hours only, over the active company's OT window. The threshold is per-company
+(`company.otThreshold`, default 40) and the window follows `company.otPeriod`:
+weekly (per week), biweekly (paired weeks), semimonthly (half-month split at
+`semiSecondDay`), or monthly (calendar month). The split is accurate when the
+OT window is equal to or shorter than the pay frequency; a window longer than
+the pay period under-counts OT. There is no OT-period option for
+semimonthly-as-pay or for the advanced cycle, by design.
 
 ## Time-off pool (was Excel cell M2 = 11)
 
