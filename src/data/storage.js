@@ -424,7 +424,7 @@ export const RemoteStore = {
 
         const { data, error } = await supabase
           .from('entries')
-          .select('date, segments, time_off, notes')
+          .select('date, segments, time_off, notes, company_id')
           .eq('company_id', companyId);
         if (error) {
           console.error('[storage] entries read failed:', error);
@@ -439,6 +439,11 @@ export const RemoteStore = {
               segments: row.segments || [],
               timeOff: row.time_off,
               notes: row.notes,
+              // Carry the entry's own company so the editor can show and
+              // preserve it. Scoped reads only return the active company, so
+              // this equals companyId here, but storing it keeps the write
+              // path's explicit-company choice authoritative.
+              companyId: row.company_id,
             };
           }
         }
@@ -565,6 +570,9 @@ export const RemoteStore = {
         // Diff
         const toUpsert = [];
         const toDelete = [];
+        // Entries that moved to a different company: the row under the OLD
+        // company must be removed so the entry doesn't linger there.
+        const toReassignDelete = [];
         for (const date of Object.keys(newSnap)) {
           const oldRow = oldSnap[date];
           const newRow = newSnap[date];
@@ -572,6 +580,11 @@ export const RemoteStore = {
             toUpsert.push(newRow);
           } else if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
             toUpsert.push(newRow);
+            const oldCompany = oldRow.companyId || companyId;
+            const newCompany = newRow.companyId || companyId;
+            if (oldCompany !== newCompany) {
+              toReassignDelete.push({ date, company: oldCompany });
+            }
           }
         }
         for (const date of Object.keys(oldSnap)) {
@@ -585,10 +598,12 @@ export const RemoteStore = {
 
         // Upserts: rely on the (user_id, company_id, date) unique
         // constraint for conflict resolution. Map app shape to DB shape.
+        // The entry's explicit company is authoritative; companyId (the active
+        // company captured at load) only fills in when the entry has none.
         if (toUpsert.length > 0) {
           const rows = toUpsert.map(e => ({
             user_id: userId,
-            company_id: companyId,
+            company_id: e.companyId || companyId,
             date: e.date,
             segments: e.segments || [],
             time_off: e.timeOff || null,
@@ -599,6 +614,19 @@ export const RemoteStore = {
             .upsert(rows, { onConflict: 'user_id,company_id,date' });
           if (upsertErr) {
             console.error('[storage] entries upsert failed:', upsertErr);
+            return false;
+          }
+        }
+
+        for (const r of toReassignDelete) {
+          const { error: reassignErr } = await supabase
+            .from('entries')
+            .delete()
+            .eq('user_id', userId)
+            .eq('company_id', r.company)
+            .eq('date', r.date);
+          if (reassignErr) {
+            console.error('[storage] entries reassign delete failed:', reassignErr);
             return false;
           }
         }

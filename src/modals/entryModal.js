@@ -14,6 +14,8 @@ import { SK } from '../data/schema.js';
 import { saveKey } from '../app.js';
 import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate } from '../core/time.js';
 import { resolveStandardDay } from '../data/standardDay.js';
+import { activeCompany } from '../data/activeCompany.js';
+import { escapeHtml } from '../core/format.js';
 import { setSyncIdle } from '../ui/topbar.js';
 import { toast } from '../ui/toast.js';
 
@@ -41,6 +43,7 @@ export function initEntryModal(state, onAfterSave) {
     const newDate = document.getElementById('eDate').value;
     if (!newDate) return;
     editingDate = newDate;
+    fillCompanySelect();
     loadFormForDate(newDate);
     document.getElementById('btnDeleteEntry').style.display =
       stateRef.entries[newDate] ? 'inline-flex' : 'none';
@@ -117,6 +120,7 @@ export function openEntryModal(date, state) {
     stateRef.entries[date] ? 'Edit Entry' : 'New Entry';
   document.getElementById('eDate').value = date;
 
+  fillCompanySelect();
   loadFormForDate(date);
   renderSegments();
   updateComputedHours();
@@ -137,6 +141,45 @@ function fillTimeOffSelect() {
   sel.innerHTML = '<option value="">— None —</option>'
     + stateRef.timeOffTypes.map(t =>
         `<option value="${t.code}">${t.label}</option>`).join('');
+}
+
+/**
+ * Populate the company picker with ACTIVE companies and select the right one:
+ *   - editing an existing entry → that entry's own company (so editing never
+ *     silently reassigns it). If that company is now inactive, it is prepended
+ *     as a selected option so the entry stays put.
+ *   - new entry → the current active company (activeCompany).
+ * With a single meaningful choice the row is hidden, so single-company use
+ * flows exactly as before.
+ */
+function fillCompanySelect() {
+  const sel = document.getElementById('eCompany');
+  if (!sel) return;
+  const companies = Array.isArray(stateRef.companies) ? stateRef.companies : [];
+  const activeList = companies.filter(c => c.isActive !== false);
+
+  const date = document.getElementById('eDate').value;
+  const existing = date ? stateRef.entries[date] : null;
+  const defaultId = String(activeCompany(stateRef).id ?? '');
+  const selectedId = existing && existing.companyId != null
+    ? String(existing.companyId)
+    : defaultId;
+
+  const opts = activeList.map(c => ({ id: String(c.id ?? ''), name: c.name, inactive: false }));
+  // The entry's company may not be active (e.g. a deactivated Ferry). Keep it
+  // as a selected option so we don't force the entry onto another company.
+  if (selectedId && !opts.some(o => o.id === selectedId)) {
+    const found = companies.find(c => String(c.id ?? '') === selectedId);
+    opts.unshift({ id: selectedId, name: found ? found.name : selectedId, inactive: true });
+  }
+
+  sel.innerHTML = opts.map(o =>
+    `<option value="${escapeHtml(o.id)}">${escapeHtml(o.name)}${o.inactive ? ' (inactive)' : ''}</option>`
+  ).join('') || `<option value="${escapeHtml(selectedId)}"></option>`;
+  sel.value = selectedId || (opts[0] && opts[0].id) || '';
+
+  const row = document.getElementById('eCompanyRow');
+  if (row) row.style.display = opts.length > 1 ? '' : 'none';
 }
 
 function renderSegments() {
@@ -246,6 +289,9 @@ async function saveEntry() {
     segments: cleanSegs,
     timeOff,
     notes: document.getElementById('eNotes').value.trim() || null,
+    // Explicit company from the picker. Authoritative on the write path; the
+    // storage layer only fills the active company when this is absent.
+    companyId: document.getElementById('eCompany')?.value || null,
   };
 
   // If the date changed during editing, remove the old key
