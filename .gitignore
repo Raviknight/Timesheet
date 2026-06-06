@@ -8,3 +8,6 @@ graphify-out/
 CLAUDE.md.bak
 # graphify MCP server config holds a machine-specific interpreter path; keep local
 .mcp.json
+
+# Claude Code local session/tooling directory
+.claude/
