@@ -17,7 +17,7 @@ import {
 } from '../data/schema.js';
 import { getPayPeriodFor, periodLengthDays } from '../core/payPeriod.js';
 import { escapeHtml, formatLong } from '../core/format.js';
-import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes, resolveBreakMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
 import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
@@ -132,6 +132,14 @@ function renderPerCompanyPayPeriod(state) {
     const wsd = c.weekStartDow ?? 1;
     const otPeriod = c.otPeriod || 'weekly';
     const otThreshold = c.otThreshold ?? 40;
+    // Per-company break + Standard Day. Blank inputs (value '') mean inherit.
+    // Break preserves a stored 0 via the != null check.
+    const inheritBreak = state.settings.breakMinutes ?? 30;
+    const brkVal = c.breakMinutes != null ? c.breakMinutes : '';
+    const sd1s = c.stdSeg1Start ?? '';
+    const sd1e = c.stdSeg1End ?? '';
+    const sd2s = c.stdSeg2Start ?? '';
+    const sd2e = c.stdSeg2End ?? '';
 
     const freqHtml = FREQ_OPTIONS.map(([v, label]) =>
       `<option value="${v}"${v === freq ? ' selected' : ''}>${label}</option>`
@@ -227,6 +235,34 @@ function renderPerCompanyPayPeriod(state) {
         <div class="stat-label">Current period preview</div>
         <div data-pp-preview style="font-size:14px;font-weight:500;margin-top:4px">${previewText}</div>
       </div>
+      <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
+        <div style="font-weight:600; margin-bottom:6px">Break &amp; Standard Day</div>
+        <div class="row">
+          <div class="grow">
+            <label>Break minutes (blank inherits user setting: ${inheritBreak})</label>
+            <input type="number" min="0" step="1" data-pp-field="breakMinutes" value="${brkVal}" placeholder="${inheritBreak}">
+          </div>
+          <div class="grow">
+            <label>Standard Day total</label>
+            <div class="stat" style="background:var(--surface-2);margin-top:0">
+              <span data-sd-total style="font-weight:600">0.00</span> h
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div class="grow"><label>Std seg 1 start</label>
+            <input type="time" data-pp-field="stdSeg1Start" value="${escapeHtml(sd1s)}"></div>
+          <div class="grow"><label>Std seg 1 end</label>
+            <input type="time" data-pp-field="stdSeg1End" value="${escapeHtml(sd1e)}"></div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div class="grow"><label>Std seg 2 start</label>
+            <input type="time" data-pp-field="stdSeg2Start" value="${escapeHtml(sd2s)}"></div>
+          <div class="grow"><label>Std seg 2 end</label>
+            <input type="time" data-pp-field="stdSeg2End" value="${escapeHtml(sd2e)}"></div>
+        </div>
+        <div class="help">Blank fields inherit the user-level Hours card. New weekday entries under this company prefill from Std seg 1.</div>
+      </div>
       <div class="row" style="justify-content:flex-end; margin-top:8px">
         <button class="btn btn-sm btn-primary" data-pp-save>Save</button>
       </div>
@@ -272,13 +308,16 @@ function renderPerCompanyPayPeriod(state) {
       showPpGroupFor(card, freqSel.value);
       applyPpGroupDefaults(card, freqSel.value);
       updatePpCardPreview(card);
+      updateSdCardTotal(card, state);
     };
     card.querySelectorAll('[data-pp-field]').forEach(el => {
       if (el === freqSel) return;
-      el.onchange = () => updatePpCardPreview(card);
+      el.onchange = () => { updatePpCardPreview(card); updateSdCardTotal(card, state); };
     });
     // Fill empty fields in the initially-visible group so its preview is valid.
     applyPpGroupDefaults(card, freqSel.value);
+    // Seed the Standard Day total for this card from its stored values.
+    updateSdCardTotal(card, state);
 
     const saveBtn = card.querySelector('[data-pp-save]');
     if (saveBtn) {
@@ -368,7 +407,25 @@ function buildPpCompanyFromCard(card) {
       const n = parseFloat(ppFieldEl(card, 'otThreshold').value);
       return Number.isFinite(n) ? n : 40;
     })(),
+    // Per-company break + Standard Day. Blank → null (inherit). numField keeps
+    // a deliberate 0 break; strField keeps "HH:MM" times or null.
+    breakMinutes: numField('breakMinutes'),
+    stdSeg1Start: strField('stdSeg1Start'),
+    stdSeg1End: strField('stdSeg1End'),
+    stdSeg2Start: strField('stdSeg2Start'),
+    stdSeg2End: strField('stdSeg2End'),
   };
+}
+
+// Refresh a card's Standard Day total from its CURRENT inputs, resolved against
+// this company (its own Standard Day + break when set, else the user setting).
+function updateSdCardTotal(card, state) {
+  const out = card.querySelector('[data-sd-total]');
+  if (!out) return;
+  const built = buildPpCompanyFromCard(card);
+  const sd = resolveStandardDay(state.settings, built);
+  const breakMin = resolveBreakMinutes(state.settings, built);
+  out.textContent = computeStandardDayHours(sd, breakMin).toFixed(2);
 }
 
 // Default values for conditional pay-period fields (advancedAnchorDate is
@@ -801,17 +858,20 @@ export function wireSettings(state, { saveAll }) {
     const rows = [['Date', 'Day', 'Segment', 'Clock In', 'Clock Out',
       'Break Minutes', 'Segment Hours', 'Day Total', 'Time Off', 'Notes']];
     const sorted = Object.values(state.entries).sort((a, b) => a.date.localeCompare(b.date));
-    const breakMin = state.settings.breakMinutes || 0;
     for (const e of sorted) {
       const segs = entrySegments(e);
-      const dayTotal = computeHours(e, state.settings, state.timeOffTypes).toFixed(2);
+      // Resolve break per entry from its own company so the CSV matches pay.
+      const company = (state.companies || [])
+        .find(c => String(c.id ?? '') === String(e.companyId ?? ''));
+      const breakMin = resolveBreakMinutes(state.settings, company || null) || 0;
+      const dayTotal = computeHours(e, state.settings, state.timeOffTypes, state.companies).toFixed(2);
       if (segs.length === 0) {
         rows.push([e.date, dayShort(e.date), '', '', '', '', '',
           dayTotal, e.timeOff || '', (e.notes || '').replace(/"/g, '""')]);
         continue;
       }
       segs.forEach((s, i) => {
-        const sh = computeSegmentHours(s, e.date, state.settings).toFixed(2);
+        const sh = computeSegmentHours(s, e.date, state.settings, breakMin).toFixed(2);
         rows.push([
           e.date, dayShort(e.date), i + 1,
           s.clockIn || '', s.clockOut || '',

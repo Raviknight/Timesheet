@@ -11,7 +11,7 @@
  */
 
 import { ensureEntriesForCompany, saveEntriesForCompany } from '../app.js';
-import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate, resolveBreakMinutes } from '../core/time.js';
 import { resolveStandardDay } from '../data/standardDay.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { escapeHtml } from '../core/format.js';
@@ -75,6 +75,13 @@ export function initEntryModal(state, onAfterSave) {
     updateComputedHours();
   });
 
+  // Company change: the per-company break can differ, so refresh the live
+  // segment/day hour previews. Does not touch the segments the user entered.
+  document.getElementById('eCompany').addEventListener('change', () => {
+    renderSegments();
+    updateComputedHours();
+  });
+
   document.getElementById('btnCancelEntry').onclick = closeEntryModal;
   document.getElementById('btnSaveEntry').onclick = saveEntry;
   document.getElementById('btnDeleteEntry').onclick = deleteEntry;
@@ -95,7 +102,11 @@ function defaultSegmentsForDate(date) {
   if (dow === 0 || dow === 6) {
     return [{ clockIn: '07:00', clockOut: '12:00', breakTaken: false }];
   }
-  const sd = resolveStandardDay(stateRef.settings);
+  // Prefill seg1 from the company this modal is scoped to, falling back to the
+  // user-level Standard Day, then the hardcoded default.
+  const company = (stateRef.companies || [])
+    .find(c => String(c.id ?? '') === String(editingCompanyId ?? ''));
+  const sd = resolveStandardDay(stateRef.settings, company || null);
   return [{
     clockIn: padHM(sd.seg1Start),
     clockOut: padHM(sd.seg1End),
@@ -202,6 +213,19 @@ function fillCompanySelect() {
   if (row) row.style.display = opts.length > 1 ? '' : 'none';
 }
 
+/**
+ * Effective break for the company currently selected in the entry modal's
+ * picker, falling back to the user setting. Drives the live segment/day hour
+ * previews so they match how the entry will be paid under its company.
+ */
+function selectedCompanyBreak() {
+  const cid = document.getElementById('eCompany')?.value || null;
+  const company = cid != null
+    ? (stateRef.companies || []).find(c => String(c.id ?? '') === String(cid))
+    : null;
+  return resolveBreakMinutes(stateRef.settings, company || null);
+}
+
 function renderSegments() {
   const c = document.getElementById('segmentsList');
   if (modalSegments.length === 0) {
@@ -210,12 +234,14 @@ function renderSegments() {
       for time-off-only entries.</div>`;
     return;
   }
+  const breakMin = selectedCompanyBreak();
   let html = '';
   modalSegments.forEach((s, i) => {
     const segH = computeSegmentHours(
       s,
       document.getElementById('eDate').value || fmtDate(new Date()),
-      stateRef.settings
+      stateRef.settings,
+      breakMin
     );
     html += `<div style="border:1px solid var(--border); border-radius:var(--radius);
       padding:10px; margin-bottom:8px; background: var(--surface-2);">
@@ -254,7 +280,8 @@ function renderSegments() {
       const segH = computeSegmentHours(
         modalSegments[i],
         document.getElementById('eDate').value || fmtDate(new Date()),
-        stateRef.settings
+        stateRef.settings,
+        selectedCompanyBreak()
       );
       const badge = c.querySelectorAll('.badge')[i];
       if (badge) badge.textContent = segH.toFixed(2) + ' h';
@@ -268,7 +295,8 @@ function renderSegments() {
       const segH = computeSegmentHours(
         modalSegments[i],
         document.getElementById('eDate').value || fmtDate(new Date()),
-        stateRef.settings
+        stateRef.settings,
+        selectedCompanyBreak()
       );
       const badge = c.querySelectorAll('.badge')[i];
       if (badge) badge.textContent = segH.toFixed(2) + ' h';
@@ -288,9 +316,11 @@ function updateComputedHours() {
     date: document.getElementById('eDate').value,
     segments: modalSegments,
     timeOff: document.getElementById('eTimeOff').value || null,
+    // Tag with the picked company so break resolves per that company.
+    companyId: document.getElementById('eCompany')?.value || null,
   };
   document.getElementById('eComputedHours').textContent =
-    computeHours(tmp, stateRef.settings, stateRef.timeOffTypes).toFixed(2);
+    computeHours(tmp, stateRef.settings, stateRef.timeOffTypes, stateRef.companies).toFixed(2);
 }
 
 async function saveEntry() {

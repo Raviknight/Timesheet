@@ -34,11 +34,35 @@ export const HARDCODED_FALLBACK = Object.freeze({
 });
 
 /**
- * Resolve which standard day applies to a user.
- * Returns the user-configured standard_day if present, else the hardcoded
- * fallback. Does not mutate input.
+ * Build a Standard Day object from a company's per-company std_seg* fields,
+ * or null when the company has configured none of them (inherit). Treated as
+ * "present" when ANY of the four fields is set, mirroring how a user-level
+ * standard_day object is either present or absent.
  */
-export function resolveStandardDay(userSettings) {
+function companyStandardDay(company) {
+  if (!company) return null;
+  const has = company.stdSeg1Start != null || company.stdSeg1End != null
+    || company.stdSeg2Start != null || company.stdSeg2End != null;
+  if (!has) return null;
+  return {
+    seg1Start: company.stdSeg1Start ?? null,
+    seg1End:   company.stdSeg1End   ?? null,
+    seg2Start: company.stdSeg2Start ?? null,
+    seg2End:   company.stdSeg2End   ?? null,
+  };
+}
+
+/**
+ * Resolve which standard day applies. Precedence:
+ *   1. the company's own Standard Day, when it has one configured
+ *   2. the user-configured standard_day
+ *   3. the hardcoded fallback
+ * Does not mutate input. When `company` is omitted or has no override, the
+ * result is identical to the original user-level resolution.
+ */
+export function resolveStandardDay(userSettings, company) {
+  const cd = companyStandardDay(company);
+  if (cd) return cd;
   if (userSettings && userSettings.standard_day) {
     return userSettings.standard_day;
   }
