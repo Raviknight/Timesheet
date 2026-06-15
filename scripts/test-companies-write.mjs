@@ -56,6 +56,9 @@ eq(
     monthlyStartDay: null,
     advancedAnchorDate: null,
     advancedCycleDays: null,
+    isActive: null,
+    otThreshold: 40,
+    otPeriod: 'weekly',
   }
 );
 
@@ -79,6 +82,9 @@ eq(
     monthlyStartDay: null,
     advancedAnchorDate: null,
     advancedCycleDays: null,
+    isActive: null,
+    otThreshold: 40,
+    otPeriod: 'weekly',
   }
 );
 
