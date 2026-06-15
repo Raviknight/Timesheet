@@ -10,8 +10,7 @@
  * only gets committed to state.entries on Save.
  */
 
-import { SK } from '../data/schema.js';
-import { saveKey } from '../app.js';
+import { ensureEntriesForCompany, saveEntriesForCompany } from '../app.js';
 import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate } from '../core/time.js';
 import { resolveStandardDay } from '../data/standardDay.js';
 import { activeCompany } from '../data/activeCompany.js';
@@ -21,8 +20,20 @@ import { toast } from '../ui/toast.js';
 
 let modalSegments = [];
 let editingDate = null;
+// Which company's timesheet this modal session is editing. Set when the modal
+// opens (from the Daily Log row, dashboard tab, or active company for a new
+// entry). The form reads from and writes to THIS company's set; the company
+// picker can still reassign the entry to another company on save.
+let editingCompanyId = null;
 let stateRef = null;
 let rerender = () => {};
+
+/** The {date: entry} map for the company this modal session is editing. For
+ *  the active company this is the SAME object as stateRef.entries. */
+function editingEntries() {
+  const byCompany = stateRef.entriesByCompany || {};
+  return byCompany[String(editingCompanyId ?? '')] || stateRef.entries;
+}
 
 export function initEntryModal(state, onAfterSave) {
   stateRef = state;
@@ -46,7 +57,7 @@ export function initEntryModal(state, onAfterSave) {
     fillCompanySelect();
     loadFormForDate(newDate);
     document.getElementById('btnDeleteEntry').style.display =
-      stateRef.entries[newDate] ? 'inline-flex' : 'none';
+      editingEntries()[newDate] ? 'inline-flex' : 'none';
     renderSegments();
     updateComputedHours();
   });
@@ -98,7 +109,7 @@ function defaultSegmentsForDate(date) {
  * day-of-week defaults.
  */
 function loadFormForDate(date) {
-  const existing = stateRef.entries[date];
+  const existing = editingEntries()[date];
   if (existing) {
     const segs = entrySegments(existing);
     modalSegments = segs.length ? JSON.parse(JSON.stringify(segs)) : [];
@@ -111,13 +122,19 @@ function loadFormForDate(date) {
   }
 }
 
-export function openEntryModal(date, state) {
+export function openEntryModal(date, state, companyId) {
   // (state may not be passed if caller has already done initEntryModal)
   if (state) stateRef = state;
+  // Scope this session to the entry's company (Daily Log row / dashboard tab),
+  // or the active company for a brand-new entry from the "+ New Entry" button.
+  editingCompanyId = companyId != null
+    ? String(companyId)
+    : String(activeCompany(stateRef).id ?? '');
   fillTimeOffSelect();
   editingDate = date;
+  const entries = editingEntries();
   document.getElementById('entryModalTitle').textContent =
-    stateRef.entries[date] ? 'Edit Entry' : 'New Entry';
+    entries[date] ? 'Edit Entry' : 'New Entry';
   document.getElementById('eDate').value = date;
 
   fillCompanySelect();
@@ -126,13 +143,14 @@ export function openEntryModal(date, state) {
   updateComputedHours();
 
   document.getElementById('btnDeleteEntry').style.display =
-    stateRef.entries[date] ? 'inline-flex' : 'none';
+    entries[date] ? 'inline-flex' : 'none';
   document.getElementById('entryModal').classList.add('show');
 }
 
 function closeEntryModal() {
   document.getElementById('entryModal').classList.remove('show');
   editingDate = null;
+  editingCompanyId = null;
   modalSegments = [];
 }
 
@@ -159,8 +177,10 @@ function fillCompanySelect() {
   const activeList = companies.filter(c => c.isActive !== false);
 
   const date = document.getElementById('eDate').value;
-  const existing = date ? stateRef.entries[date] : null;
-  const defaultId = String(activeCompany(stateRef).id ?? '');
+  const existing = date ? editingEntries()[date] : null;
+  // New entries default to the company this modal session is scoped to (the
+  // dashboard tab / active company), not always the active company.
+  const defaultId = String(editingCompanyId ?? activeCompany(stateRef).id ?? '');
   const selectedId = existing && existing.companyId != null
     ? String(existing.companyId)
     : defaultId;
@@ -284,6 +304,13 @@ async function saveEntry() {
     if (!confirm('No segments and no time off. Save as a blank entry anyway?')) return;
   }
 
+  const activeId = String(activeCompany(stateRef).id ?? '');
+  // Source = the company whose timesheet is open; target = the company picked
+  // (may differ when the user reassigns the entry).
+  const sourceCid = String(editingCompanyId ?? activeId);
+  const pickedCid = document.getElementById('eCompany')?.value || null;
+  const targetCid = String(pickedCid ?? sourceCid);
+
   const entry = {
     date,
     segments: cleanSegs,
@@ -291,15 +318,30 @@ async function saveEntry() {
     notes: document.getElementById('eNotes').value.trim() || null,
     // Explicit company from the picker. Authoritative on the write path; the
     // storage layer only fills the active company when this is absent.
-    companyId: document.getElementById('eCompany')?.value || null,
+    companyId: pickedCid,
   };
 
-  // If the date changed during editing, remove the old key
-  if (editingDate && editingDate !== date) {
-    delete stateRef.entries[editingDate];
+  // Make sure the target company's set is in memory before we mutate it.
+  await ensureEntriesForCompany(targetCid);
+
+  const sourceSet = (stateRef.entriesByCompany || {})[sourceCid] || stateRef.entries;
+  const targetSet = (stateRef.entriesByCompany || {})[targetCid] || stateRef.entries;
+
+  // Remove the entry from its source: the old date (if the date changed) and
+  // the current date (in case the company is changing but the date is not).
+  if (editingDate && editingDate !== date) delete sourceSet[editingDate];
+  delete sourceSet[date];
+  // Write into the target company's set under the (possibly new) date.
+  targetSet[date] = entry;
+
+  // Persist the affected company sets. When source and target differ, both the
+  // donor (delete) and the receiver (insert) must be saved.
+  if (sourceCid === targetCid) {
+    if (!await saveEntriesForCompany(targetCid)) return;
+  } else {
+    if (!await saveEntriesForCompany(sourceCid)) return;
+    if (!await saveEntriesForCompany(targetCid)) return;
   }
-  stateRef.entries[date] = entry;
-  if (!await saveKey(SK.entries, stateRef.entries, 'Entry')) return;
   setSyncIdle();
   closeEntryModal();
   rerender();
@@ -309,8 +351,11 @@ async function saveEntry() {
 async function deleteEntry() {
   if (!editingDate) return;
   if (!confirm('Delete this entry?')) return;
-  delete stateRef.entries[editingDate];
-  if (!await saveKey(SK.entries, stateRef.entries, 'Entry')) return;
+  const activeId = String(activeCompany(stateRef).id ?? '');
+  const sourceCid = String(editingCompanyId ?? activeId);
+  const sourceSet = (stateRef.entriesByCompany || {})[sourceCid] || stateRef.entries;
+  delete sourceSet[editingDate];
+  if (!await saveEntriesForCompany(sourceCid)) return;
   setSyncIdle();
   closeEntryModal();
   rerender();

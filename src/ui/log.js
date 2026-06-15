@@ -8,19 +8,61 @@
 import { computeHours, entrySegments, dayShort, fmtDate } from '../core/time.js';
 import { escapeHtml, monthName } from '../core/format.js';
 import { openEntryModal } from '../modals/entryModal.js';
+import { activeCompany } from '../data/activeCompany.js';
+
+/**
+ * Flatten every active company's entries into one list, tagging each with the
+ * company it belongs to (_companyId / _companyName) so a row can be labeled and
+ * edited against the right company. The active company's set is state.entries;
+ * the rest come from state.entriesByCompany. With a single company this is just
+ * that company's entries, as before, plus the label.
+ */
+function allCompanyEntries(state) {
+  const companies = Array.isArray(state.companies) ? state.companies : [];
+  const actives = companies.filter(c => c.isActive !== false);
+  const nameById = {};
+  for (const c of companies) nameById[String(c.id ?? '')] = c.name;
+
+  const byCompany = state.entriesByCompany || {};
+  const activeId = String(activeCompany(state).id ?? '');
+  // Seed with the active company so single-company / local mode always works
+  // even before entriesByCompany is populated.
+  const ids = new Set([activeId]);
+  for (const c of actives) ids.add(String(c.id ?? ''));
+
+  const out = [];
+  for (const cid of ids) {
+    const set = byCompany[cid] || (cid === activeId ? state.entries : null);
+    if (!set) continue;
+    for (const e of Object.values(set)) {
+      out.push({ ...e, _companyId: cid, _companyName: nameById[cid] || '' });
+    }
+  }
+  return out;
+}
+
+/** Time-off types for a given company id, falling back to the active set. */
+function timeOffTypesFor(state, companyId) {
+  return (state.timeOffByCompany || {})[String(companyId ?? '')] || state.timeOffTypes;
+}
 
 export function renderLog(state) {
   renderLogYears(state);
   const year = state.ui.logYear + '';
   const search = (document.getElementById('logSearch').value || '').toLowerCase().trim();
   const list = document.getElementById('entriesList');
+  // Label rows with the company only when more than one active company exists.
+  const multiCompany = (Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : []).length > 1;
 
-  const all = Object.values(state.entries)
+  const all = allCompanyEntries(state)
     .filter(e => e.date.startsWith(year))
     .filter(e => {
       if (!search) return true;
       return (e.notes || '').toLowerCase().includes(search)
         || (e.timeOff || '').toLowerCase().includes(search)
+        || (e._companyName || '').toLowerCase().includes(search)
         || e.date.includes(search);
     })
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -48,7 +90,7 @@ export function renderLog(state) {
     let monthTotal = 0;
     for (const e of byMonth[m]) {
       if (!e.timeOff || e.timeOff === 'HOLIDAY') {
-        monthTotal += computeHours(e, state.settings, state.timeOffTypes);
+        monthTotal += computeHours(e, state.settings, timeOffTypesFor(state, e._companyId));
       }
     }
     html += `<div style="margin-top:14px;margin-bottom:6px;font-size:12px;font-weight:600;
@@ -57,7 +99,7 @@ export function renderLog(state) {
       <span class="muted" style="font-weight:400">· ${monthTotal.toFixed(1)} h</span>
     </div>`;
     for (const e of byMonth[m]) {
-      const h = computeHours(e, state.settings, state.timeOffTypes);
+      const h = computeHours(e, state.settings, timeOffTypesFor(state, e._companyId));
       const dn = dayShort(e.date);
       const day = e.date.slice(8, 10);
       const timeOffPill = e.timeOff
@@ -73,9 +115,12 @@ export function renderLog(state) {
         ? ` <span class="badge">${segs.length} segments</span>`
         : '';
       const timeStr = `${firstIn} → ${lastOut}`;
-      html += `<div class="entry-row" data-date="${e.date}">
+      const companyTag = multiCompany && e._companyName
+        ? ` <span class="badge">${escapeHtml(e._companyName)}</span>`
+        : '';
+      html += `<div class="entry-row" data-date="${e.date}" data-company-id="${escapeHtml(e._companyId || '')}">
         <div class="entry-date"><div class="day">${dn}</div><div>${day}</div></div>
-        <div>${timeOffPill}<span class="entry-times">${timeStr}</span>${multiBadge}${noteSnip}</div>
+        <div>${timeOffPill}<span class="entry-times">${timeStr}</span>${multiBadge}${companyTag}${noteSnip}</div>
         <div class="entry-hours">${h > 0 ? h.toFixed(2) : '—'}</div>
       </div>`;
     }
@@ -83,14 +128,14 @@ export function renderLog(state) {
 
   list.innerHTML = html;
   list.querySelectorAll('.entry-row').forEach(el => {
-    el.onclick = () => openEntryModal(el.dataset.date, state);
+    el.onclick = () => openEntryModal(el.dataset.date, state, el.dataset.companyId || undefined);
   });
 }
 
 function renderLogYears(state) {
   const sel = document.getElementById('logYear');
   const years = new Set();
-  Object.keys(state.entries).forEach(d => years.add(d.slice(0, 4)));
+  allCompanyEntries(state).forEach(e => years.add(e.date.slice(0, 4)));
   years.add(new Date().getFullYear() + '');
   years.add((new Date().getFullYear() - 1) + '');
   const sorted = [...years].sort().reverse();
