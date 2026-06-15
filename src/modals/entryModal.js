@@ -161,14 +161,26 @@ export function openEntryModal(date, state, context = {}) {
   // context: { source: 'payperiod' | 'log', companyId } — where the modal was
   // opened from, and the company it should be scoped to (if known).
   const { source = null, companyId = null } = context;
+  // When added from the Daily Log with no company given, require an explicit
+  // pick ONLY if there is genuine ambiguity (two or more active companies).
+  // With a single active company there is nothing to disambiguate, so scope
+  // to it and skip the forced pick.
+  const activeList = (Array.isArray(stateRef.companies) ? stateRef.companies : [])
+    .filter(c => c.isActive !== false);
+  const logNeedsPick = source === 'log' && companyId == null && activeList.length > 1;
   // Scope this session to:
   //  - the given company (Pay Period tab, or an existing entry's own company),
-  //  - no company at all when added from the Daily Log (forces a pick),
+  //  - no company at all when the Daily Log add is ambiguous (forces a pick),
+  //  - the lone active company when added from the Daily Log with just one,
   //  - else the active company (back-compat for any other caller).
   editingCompanyId = companyId != null
     ? String(companyId)
-    : (source === 'log' ? null : String(activeCompany(stateRef).id ?? ''));
-  newFromLog = source === 'log' && companyId == null;
+    : (logNeedsPick
+        ? null
+        : (source === 'log' && activeList.length === 1
+            ? String(activeList[0].id ?? '')
+            : String(activeCompany(stateRef).id ?? '')));
+  newFromLog = logNeedsPick;
   hideEntryError();
   fillTimeOffSelect();
   editingDate = date;
