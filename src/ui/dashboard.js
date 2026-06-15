@@ -15,19 +15,77 @@ import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/b
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 
-export function renderDashboard(state, selectedCompany = activeCompany(state)) {
+/**
+ * Which company the Pay Period landing is showing. state.ui.ppCompanyId names
+ * the selected tab; when unset (or pointing at a now-inactive company) we fall
+ * back to the active company, so single-company use and the default render are
+ * output-identical.
+ */
+function selectedDashboardCompany(state) {
+  const id = state?.ui?.ppCompanyId;
+  if (id != null) {
+    const list = Array.isArray(state.companies) ? state.companies : [];
+    const found = list.find(c => String(c.id ?? '') === String(id) && c.isActive !== false);
+    if (found) return found;
+  }
+  return activeCompany(state);
+}
+
+/**
+ * Render the per-company tab strip at the top of the Pay Period landing, one
+ * tab per ACTIVE company, highlighting `company`. With a single active company
+ * there is no strip (single-company use looks exactly as before). Selecting a
+ * tab re-renders the dashboard for that company via renderDashboard.
+ */
+function renderCompanyTabs(state, company) {
+  const host = document.getElementById('ppCompanyTabs');
+  if (!host) return;
+  const actives = Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : [];
+  if (actives.length <= 1) {
+    host.innerHTML = '';
+    return;
+  }
+  const selId = String(company.id ?? '');
+  host.innerHTML = '<div class="pp-subtabs">' + actives.map(c => {
+    const id = String(c.id ?? '');
+    const isSel = id === selId ? ' active' : '';
+    return `<button type="button" class="pp-subtab${isSel}" data-pp-company="${escapeHtml(id)}">${escapeHtml(c.name)}</button>`;
+  }).join('') + '</div>';
+
+  host.querySelectorAll('[data-pp-company]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.ppCompany;
+      const target = actives.find(c => String(c.id ?? '') === id);
+      if (target) renderDashboard(state, target);
+    };
+  });
+}
+
+export function renderDashboard(state, selectedCompany = selectedDashboardCompany(state)) {
   const company = selectedCompany;
+  // Remember which company the landing is showing so the period buttons
+  // (which re-render with no explicit company) keep the same tab.
+  state.ui.ppCompanyId = company.id ?? null;
+  renderCompanyTabs(state, company);
+
+  const cid = String(company.id ?? '');
   // Time-off types are per-company. Prefer the selected company's set; fall
   // back to state.timeOffTypes (which is the active company's set, and is the
   // SAME array reference held under its id in timeOffByCompany).
-  const timeOffTypes = state.timeOffByCompany?.[company.id] || state.timeOffTypes;
+  const timeOffTypes = state.timeOffByCompany?.[cid] || state.timeOffTypes;
+  // Entries are per-company. Prefer the selected company's set; fall back to
+  // state.entries (the active company's set, which is the SAME object held
+  // under its id in entriesByCompany).
+  const entries = state.entriesByCompany?.[cid] || state.entries;
   const pp = getPayPeriodFor(state.ui.ppMode, state.ui.ppOtherDate, company);
   document.getElementById('ppRange').textContent =
     `${formatLong(pp.start)} — ${formatLong(pp.end)}`;
   document.getElementById('ppOtherPicker').style.display =
     state.ui.ppMode === 'other' ? 'block' : 'none';
 
-  const inPP = Object.values(state.entries)
+  const inPP = Object.values(entries)
     .filter(e => e.date >= pp.start && e.date <= pp.end);
   // OT threshold is per-company now. Fall back to 40 only when missing
   // (null/undefined/NaN); a deliberately stored value, including 0, is kept.
@@ -44,7 +102,7 @@ export function renderDashboard(state, selectedCompany = activeCompany(state)) {
     ? [{ ...rawWeeks[0], label: 'Period' }]
     : rawWeeks.map((w, i) => ({ ...w, label: 'Week ' + (i + 1) }));
   for (const w of weeks) {
-    wkContainer.appendChild(renderWeekCard(w, state, company, timeOffTypes));
+    wkContainer.appendChild(renderWeekCard(w, state, company, timeOffTypes, entries));
   }
 
   // Totals. Mirrors the per-week card buckets so they reconcile:
@@ -122,14 +180,14 @@ export function renderDashboard(state, selectedCompany = activeCompany(state)) {
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
 
-  renderBalances(state, timeOffTypes);
+  renderBalances(state, timeOffTypes, entries);
 }
 
-function renderWeekCard(week, state, company, timeOffTypes) {
+function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
   const card = document.createElement('div');
   card.className = 'card week-card';
 
-  const entries = Object.values(state.entries)
+  const entries = Object.values(entriesMap)
     .filter(e => e.date >= week.start && e.date <= week.end)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -202,14 +260,14 @@ function renderWeekCard(week, state, company, timeOffTypes) {
 
   card.innerHTML = html;
   card.querySelectorAll('tr[data-date]').forEach(tr => {
-    tr.onclick = () => openEntryModal(tr.dataset.date, state);
+    tr.onclick = () => openEntryModal(tr.dataset.date, state, company.id);
   });
   return card;
 }
 
-function renderBalances(state, timeOffTypes = state.timeOffTypes) {
+function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries) {
   const container = document.getElementById('balancesList');
-  const entries = Object.values(state.entries);
+  const entries = Object.values(entriesMap);
   let html = '';
 
   for (const t of timeOffTypes) {
