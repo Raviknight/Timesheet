@@ -183,6 +183,8 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   document.getElementById('ppRegular').textContent = ppRegular.toFixed(2);
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
+  // Holiday hours for the current period, alongside the inclusive Time off.
+  document.getElementById('ppHoliday').textContent = ppHoliday.toFixed(2);
 
   // Annual block: a single year selector drives three read-only tiles, scoped
   // to THIS company. On a company switch reset to the current year; period
