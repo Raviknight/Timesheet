@@ -104,61 +104,48 @@ function setVal(id, v) {
   if (el) el.value = v;
 }
 
-function renderPerCompanyPayPeriod(state) {
-  const list = document.getElementById('ppPerCompanyList');
-  if (!list) return;
-  const activeCompanies = Array.isArray(state.companies)
-    ? state.companies.filter(c => c.isActive !== false)
-    : [];
-  if (activeCompanies.length === 0) {
-    list.innerHTML = '<div class="muted">No active companies.</div>';
-    return;
-  }
+// Module-level so the Settings card and the new-company setup modal render the
+// SAME field set from one source (no fork).
+const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const FREQ_OPTIONS = [
+  ['weekly',      'Weekly'],
+  ['biweekly',    'Bi-weekly'],
+  ['semimonthly', 'Semi-monthly'],
+  ['monthly',     'Monthly'],
+  ['advanced',    'Advanced'],
+];
 
-  // Default the visible tab to the user's active company; fall back to the
-  // first active company when that one is inactive or unset.
-  const active = activeCompany(state);
-  const selectedId = activeCompanies.some(c => String(c.id ?? '') === String(active.id ?? ''))
-    ? String(active.id ?? '')
-    : String(activeCompanies[0].id ?? '');
+// Build the inner pay-period + OT + break + Standard Day fields for one company.
+// Returns just the fields (no card wrapper, name header, Save button, or
+// time-off section) so the Settings card and the setup modal share this markup
+// and all the [data-pp-field]/[data-pp-group] helpers operate on it identically.
+function ppCardFieldsHtml(c) {
+  const freq = c.payFrequency || 'biweekly';
+  const wsd = c.weekStartDow ?? 1;
+  const otPeriod = c.otPeriod || 'weekly';
+  const otThreshold = c.otThreshold ?? 40;
+  // Per-company break + Standard Day. A blank break defaults to 30; a blank
+  // Standard Day uses the hardcoded default. Break preserves a stored 0.
+  const brkVal = c.breakMinutes != null ? c.breakMinutes : '';
+  const sd1s = c.stdSeg1Start ?? '';
+  const sd1e = c.stdSeg1End ?? '';
+  const sd2s = c.stdSeg2Start ?? '';
+  const sd2e = c.stdSeg2End ?? '';
 
-  const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const FREQ_OPTIONS = [
-    ['weekly',      'Weekly'],
-    ['biweekly',    'Bi-weekly'],
-    ['semimonthly', 'Semi-monthly'],
-    ['monthly',     'Monthly'],
-    ['advanced',    'Advanced'],
-  ];
+  const freqHtml = FREQ_OPTIONS.map(([v, label]) =>
+    `<option value="${v}"${v === freq ? ' selected' : ''}>${label}</option>`
+  ).join('');
+  const dowHtml = DOW_LABELS.map((label, i) =>
+    `<option value="${i}"${i === wsd ? ' selected' : ''}>${label}</option>`
+  ).join('');
 
-  let html = '';
-  for (const c of activeCompanies) {
-    const freq = c.payFrequency || 'biweekly';
-    const wsd = c.weekStartDow ?? 1;
-    const otPeriod = c.otPeriod || 'weekly';
-    const otThreshold = c.otThreshold ?? 40;
-    // Per-company break + Standard Day. A blank break defaults to 30; a blank
-    // Standard Day uses the hardcoded default. Break preserves a stored 0.
-    const brkVal = c.breakMinutes != null ? c.breakMinutes : '';
-    const sd1s = c.stdSeg1Start ?? '';
-    const sd1e = c.stdSeg1End ?? '';
-    const sd2s = c.stdSeg2Start ?? '';
-    const sd2e = c.stdSeg2End ?? '';
-
-    const freqHtml = FREQ_OPTIONS.map(([v, label]) =>
-      `<option value="${v}"${v === freq ? ' selected' : ''}>${label}</option>`
-    ).join('');
-    const dowHtml = DOW_LABELS.map((label, i) =>
-      `<option value="${i}"${i === wsd ? ' selected' : ''}>${label}</option>`
-    ).join('');
-
-    // All conditional groups are always rendered; only the one matching the
-    // current frequency is visible. Visibility + defaults are toggled in the
-    // wiring below as the frequency changes. Values render stored-or-empty;
-    // empty visible fields are filled with defaults at wire time.
-    const parity = c.biweeklyStartParity || 'odd';
-    const grpStyle = (g) => freq === g ? '' : ' style="display:none"';
-    const extraHtml = `
+  // All conditional groups are always rendered; only the one matching the
+  // current frequency is visible. Visibility + defaults are toggled in the
+  // wiring (wirePpCard) as the frequency changes. Values render stored-or-empty;
+  // empty visible fields are filled with defaults at wire time.
+  const parity = c.biweeklyStartParity || 'odd';
+  const grpStyle = (g) => freq === g ? '' : ' style="display:none"';
+  const extraHtml = `
         <div class="grow" data-pp-group="biweekly"${grpStyle('biweekly')}>
           <label>Week parity</label>
           <select data-pp-field="biweeklyStartParity">
@@ -195,20 +182,16 @@ function renderPerCompanyPayPeriod(state) {
           </div>
         </div>`;
 
-    let previewText;
-    try {
-      const pp = getPayPeriodFor('current', null, c);
-      const days = periodLengthDays(pp.start, pp.end);
-      previewText = `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
-    } catch (err) {
-      previewText = 'Complete the fields to preview';
-    }
+  let previewText;
+  try {
+    const pp = getPayPeriodFor('current', null, c);
+    const days = periodLengthDays(pp.start, pp.end);
+    previewText = `${formatLong(pp.start)} → ${formatLong(pp.end)} (${days} days)`;
+  } catch (err) {
+    previewText = 'Complete the fields to preview';
+  }
 
-    const cardHidden = String(c.id ?? '') === selectedId ? '' : 'display:none;';
-    html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="${cardHidden}border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
-      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-        <div style="font-weight:600">${escapeHtml(c.name)}</div>
-      </div>
+  return `
       <div class="row">
         <div class="grow">
           <label>Pay frequency</label>
@@ -265,7 +248,109 @@ function renderPerCompanyPayPeriod(state) {
           <div class="grow"><label>Std seg 2 end</label>
             <input type="time" data-pp-field="stdSeg2End" value="${escapeHtml(sd2e)}"></div>
         </div>
+      </div>`;
+}
+
+// Wire a card element (Settings card or setup modal body): conditional-group
+// visibility on frequency change, live pay-period preview, and Standard Day
+// total. Shared so the two surfaces stay in sync.
+function wirePpCard(card, state) {
+  const freqSel = ppFieldEl(card, 'payFrequency');
+  if (!freqSel) return;
+  freqSel.onchange = () => {
+    showPpGroupFor(card, freqSel.value);
+    applyPpGroupDefaults(card, freqSel.value);
+    updatePpCardPreview(card);
+    updateSdCardTotal(card, state);
+  };
+  card.querySelectorAll('[data-pp-field]').forEach(el => {
+    if (el === freqSel) return;
+    el.onchange = () => { updatePpCardPreview(card); updateSdCardTotal(card, state); };
+  });
+  // Fill empty fields in the initially-visible group so its preview is valid,
+  // then seed the Standard Day total from the current values.
+  applyPpGroupDefaults(card, freqSel.value);
+  updateSdCardTotal(card, state);
+}
+
+// New-company setup modal. Opens right after Add Company, titled with the new
+// company's name. Reuses ppCardFieldsHtml + wirePpCard + buildPpCompanyFromCard,
+// so it shares the Settings card's fields, validation, and per-company Save.
+function openCompanySetupModal(state, companyId) {
+  const company = state.companies.find(c => String(c.id ?? '') === String(companyId));
+  if (!company) return;
+  const bg = document.getElementById('companySetupModal');
+  if (!bg) return;
+
+  document.getElementById('companySetupTitle').textContent = `Set up ${company.name}`;
+  const body = document.getElementById('companySetupBody');
+  // Show 30 in the break field as the default for the setup flow; everything
+  // else comes from the freshly-created company (biweekly / Mon / OT 40 /
+  // weekly, blank Standard Day).
+  const display = { ...company, breakMinutes: company.breakMinutes ?? 30 };
+  body.innerHTML = `<div data-company-id="${escapeHtml(company.id ?? '')}">${ppCardFieldsHtml(display)}</div>`;
+  const card = body.querySelector('[data-company-id]');
+  wirePpCard(card, state);
+
+  const close = () => bg.classList.remove('show');
+
+  // Set up later: keep the company's blank defaults; just close.
+  document.getElementById('btnCompanySetupSkip').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+
+  const saveBtn = document.getElementById('btnCompanySetupSave');
+  saveBtn.onclick = async () => {
+    const built = buildPpCompanyFromCard(card);
+    try {
+      getPayPeriodFor('current', null, built);
+    } catch (err) {
+      toast('Complete the required fields before saving.');
+      return;
+    }
+    Object.assign(company, built);
+    saveBtn.disabled = true;
+    const ok = await saveKey(SK.companies, state.companies, 'Companies');
+    saveBtn.disabled = false;
+    if (!ok) {
+      toast('Could not save setup');
+      return;
+    }
+    setSyncIdle();
+    close();
+    renderCompaniesList(state);
+    renderPerCompanyPayPeriod(state);
+    toast('Company set up');
+  };
+
+  bg.classList.add('show');
+}
+
+function renderPerCompanyPayPeriod(state) {
+  const list = document.getElementById('ppPerCompanyList');
+  if (!list) return;
+  const activeCompanies = Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : [];
+  if (activeCompanies.length === 0) {
+    list.innerHTML = '<div class="muted">No active companies.</div>';
+    return;
+  }
+
+  // Default the visible tab to the user's active company; fall back to the
+  // first active company when that one is inactive or unset.
+  const active = activeCompany(state);
+  const selectedId = activeCompanies.some(c => String(c.id ?? '') === String(active.id ?? ''))
+    ? String(active.id ?? '')
+    : String(activeCompanies[0].id ?? '');
+
+  let html = '';
+  for (const c of activeCompanies) {
+    const cardHidden = String(c.id ?? '') === selectedId ? '' : 'display:none;';
+    html += `<div data-company-id="${escapeHtml(c.id ?? '')}" style="${cardHidden}border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+        <div style="font-weight:600">${escapeHtml(c.name)}</div>
       </div>
+      ${ppCardFieldsHtml(c)}
       <div class="row" style="justify-content:flex-end; margin-top:8px">
         <button class="btn btn-sm btn-primary" data-pp-save>Save</button>
       </div>
@@ -305,22 +390,10 @@ function renderPerCompanyPayPeriod(state) {
   // Wire each card: editing toggles conditional visibility and recomputes the
   // preview from the current inputs. No persistence here (save is a later chunk).
   list.querySelectorAll('[data-company-id]').forEach(card => {
-    const freqSel = ppFieldEl(card, 'payFrequency');
-    if (!freqSel) return;
-    freqSel.onchange = () => {
-      showPpGroupFor(card, freqSel.value);
-      applyPpGroupDefaults(card, freqSel.value);
-      updatePpCardPreview(card);
-      updateSdCardTotal(card, state);
-    };
-    card.querySelectorAll('[data-pp-field]').forEach(el => {
-      if (el === freqSel) return;
-      el.onchange = () => { updatePpCardPreview(card); updateSdCardTotal(card, state); };
-    });
-    // Fill empty fields in the initially-visible group so its preview is valid.
-    applyPpGroupDefaults(card, freqSel.value);
-    // Seed the Standard Day total for this card from its stored values.
-    updateSdCardTotal(card, state);
+    if (!ppFieldEl(card, 'payFrequency')) return;
+    // Shared wiring: conditional-group visibility, preview, and Standard Day
+    // total. Same call the setup modal uses, so the two never drift.
+    wirePpCard(card, state);
 
     const saveBtn = card.querySelector('[data-pp-save]');
     if (saveBtn) {
@@ -823,7 +896,7 @@ export function wireSettings(state, { saveAll }) {
     if (!name) return;
     btn.disabled = true;
     try {
-      await createCompany(name);
+      const newId = await createCompany(name);
       // Re-read from the store so state.companies reflects the persisted
       // rows (and the write-path snapshot is refreshed for future diffs).
       const companies = await Store.get(SK.companies, null);
@@ -833,6 +906,9 @@ export function wireSettings(state, { saveAll }) {
       renderCompaniesList(state);
       renderPerCompanyPayPeriod(state);
       toast('Company added');
+      // New companies start blank, so prompt to fill in the important metadata
+      // (skippable). Defaults stay if they choose "Set up later".
+      if (newId) openCompanySetupModal(state, newId);
     } catch (e) {
       console.error('Add company failed:', e);
       toast('Could not add company');
