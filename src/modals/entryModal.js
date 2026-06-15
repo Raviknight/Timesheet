@@ -25,14 +25,21 @@ let editingDate = null;
 // entry). The form reads from and writes to THIS company's set; the company
 // picker can still reassign the entry to another company on save.
 let editingCompanyId = null;
+// True only when the modal was opened from the Daily Log "+ Add Entry" button
+// with no company chosen. In that mode the company picker is required and a
+// company change re-scopes the session + applies the Standard Day prefill.
+let newFromLog = false;
 let stateRef = null;
 let rerender = () => {};
 
 /** The {date: entry} map for the company this modal session is editing. For
- *  the active company this is the SAME object as stateRef.entries. */
+ *  the active company this is the SAME object as stateRef.entries. When no
+ *  company is chosen yet (Daily Log "+ Add Entry"), there is no set to read,
+ *  so an empty map is returned and the form stays blank until a pick. */
 function editingEntries() {
+  if (editingCompanyId == null) return {};
   const byCompany = stateRef.entriesByCompany || {};
-  return byCompany[String(editingCompanyId ?? '')] || stateRef.entries;
+  return byCompany[String(editingCompanyId)] || stateRef.entries;
 }
 
 export function initEntryModal(state, onAfterSave) {
@@ -77,7 +84,19 @@ export function initEntryModal(state, onAfterSave) {
 
   // Company change: the per-company break can differ, so refresh the live
   // segment/day hour previews. Does not touch the segments the user entered.
+  // When opened from the Daily Log with no company yet, picking one also
+  // re-scopes this session to that company and applies its Standard Day
+  // prefill (or loads that company's existing entry for the date).
   document.getElementById('eCompany').addEventListener('change', () => {
+    if (newFromLog) {
+      const sel = document.getElementById('eCompany');
+      const date = document.getElementById('eDate').value;
+      editingCompanyId = sel.value || null;
+      hideEntryError();
+      loadFormForDate(date);
+      document.getElementById('btnDeleteEntry').style.display =
+        editingEntries()[date] ? 'inline-flex' : 'none';
+    }
     renderSegments();
     updateComputedHours();
   });
@@ -98,6 +117,9 @@ export function initEntryModal(state, onAfterSave) {
  * Weekend (Sat/Sun): one segment 07:00 to 12:00, no break.
  */
 function defaultSegmentsForDate(date) {
+  // No company chosen yet (Daily Log "+ Add Entry"): no Standard Day prefill
+  // until the user picks a company. The on-company-change handler fills it in.
+  if (editingCompanyId == null) return [];
   const dow = parseDate(date).getDay();
   if (dow === 0 || dow === 6) {
     return [{ clockIn: '07:00', clockOut: '12:00', breakTaken: false }];
@@ -133,14 +155,21 @@ function loadFormForDate(date) {
   }
 }
 
-export function openEntryModal(date, state, companyId) {
+export function openEntryModal(date, state, context = {}) {
   // (state may not be passed if caller has already done initEntryModal)
   if (state) stateRef = state;
-  // Scope this session to the entry's company (Daily Log row / dashboard tab),
-  // or the active company for a brand-new entry from the "+ New Entry" button.
+  // context: { source: 'payperiod' | 'log', companyId } — where the modal was
+  // opened from, and the company it should be scoped to (if known).
+  const { source = null, companyId = null } = context;
+  // Scope this session to:
+  //  - the given company (Pay Period tab, or an existing entry's own company),
+  //  - no company at all when added from the Daily Log (forces a pick),
+  //  - else the active company (back-compat for any other caller).
   editingCompanyId = companyId != null
     ? String(companyId)
-    : String(activeCompany(stateRef).id ?? '');
+    : (source === 'log' ? null : String(activeCompany(stateRef).id ?? ''));
+  newFromLog = source === 'log' && companyId == null;
+  hideEntryError();
   fillTimeOffSelect();
   editingDate = date;
   const entries = editingEntries();
@@ -162,7 +191,23 @@ function closeEntryModal() {
   document.getElementById('entryModal').classList.remove('show');
   editingDate = null;
   editingCompanyId = null;
+  newFromLog = false;
+  hideEntryError();
   modalSegments = [];
+}
+
+function showEntryError(msg) {
+  const el = document.getElementById('eCompanyError');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+function hideEntryError() {
+  const el = document.getElementById('eCompanyError');
+  if (!el) return;
+  el.textContent = '';
+  el.style.display = 'none';
 }
 
 function fillTimeOffSelect() {
@@ -189,12 +234,15 @@ function fillCompanySelect() {
 
   const date = document.getElementById('eDate').value;
   const existing = date ? editingEntries()[date] : null;
+  // Added from the Daily Log with no company yet: show a blank placeholder and
+  // require an explicit pick before save (handled in saveEntry).
+  const noCompany = editingCompanyId == null && !existing;
   // New entries default to the company this modal session is scoped to (the
   // dashboard tab / active company), not always the active company.
   const defaultId = String(editingCompanyId ?? activeCompany(stateRef).id ?? '');
   const selectedId = existing && existing.companyId != null
     ? String(existing.companyId)
-    : defaultId;
+    : (noCompany ? '' : defaultId);
 
   const opts = activeList.map(c => ({ id: String(c.id ?? ''), name: c.name, inactive: false }));
   // The entry's company may not be active (e.g. a deactivated Ferry). Keep it
@@ -204,13 +252,18 @@ function fillCompanySelect() {
     opts.unshift({ id: selectedId, name: found ? found.name : selectedId, inactive: true });
   }
 
-  sel.innerHTML = opts.map(o =>
+  let optionsHtml = opts.map(o =>
     `<option value="${escapeHtml(o.id)}">${escapeHtml(o.name)}${o.inactive ? ' (inactive)' : ''}</option>`
-  ).join('') || `<option value="${escapeHtml(selectedId)}"></option>`;
-  sel.value = selectedId || (opts[0] && opts[0].id) || '';
+  ).join('');
+  if (noCompany) {
+    optionsHtml = `<option value="" selected>Select company</option>` + optionsHtml;
+  }
+  sel.innerHTML = optionsHtml || `<option value="${escapeHtml(selectedId)}"></option>`;
+  sel.value = noCompany ? '' : (selectedId || (opts[0] && opts[0].id) || '');
 
   const row = document.getElementById('eCompanyRow');
-  if (row) row.style.display = opts.length > 1 ? '' : 'none';
+  // Always surface the picker when a pick is required, even for a single company.
+  if (row) row.style.display = (noCompany || opts.length > 1) ? '' : 'none';
 }
 
 /**
@@ -334,11 +387,14 @@ async function saveEntry() {
     if (!confirm('No segments and no time off. Save as a blank entry anyway?')) return;
   }
 
+  const pickedCid = document.getElementById('eCompany')?.value || null;
+  // Added from the Daily Log: a company must be picked before save.
+  if (!pickedCid) { showEntryError('Select a company before saving.'); return; }
+
   const activeId = String(activeCompany(stateRef).id ?? '');
   // Source = the company whose timesheet is open; target = the company picked
   // (may differ when the user reassigns the entry).
   const sourceCid = String(editingCompanyId ?? activeId);
-  const pickedCid = document.getElementById('eCompany')?.value || null;
   const targetCid = String(pickedCid ?? sourceCid);
 
   const entry = {

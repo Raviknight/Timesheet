@@ -128,7 +128,7 @@ export function renderLog(state) {
 
   list.innerHTML = html;
   list.querySelectorAll('.entry-row').forEach(el => {
-    el.onclick = () => openEntryModal(el.dataset.date, state, el.dataset.companyId || undefined);
+    el.onclick = () => openEntryModal(el.dataset.date, state, { companyId: el.dataset.companyId || undefined });
   });
 }
 
@@ -146,6 +146,6 @@ function renderLogYears(state) {
 
 export function wireLog(state) {
   document.getElementById('btnAddEntry').onclick =
-    () => openEntryModal(fmtDate(new Date()), state);
+    () => openEntryModal(fmtDate(new Date()), state, { source: 'log' });
   document.getElementById('logSearch').oninput = () => renderLog(state);
 }

@@ -260,7 +260,7 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
 
   card.innerHTML = html;
   card.querySelectorAll('tr[data-date]').forEach(tr => {
-    tr.onclick = () => openEntryModal(tr.dataset.date, state, company.id);
+    tr.onclick = () => openEntryModal(tr.dataset.date, state, { source: 'payperiod', companyId: company.id });
   });
   return card;
 }
