@@ -326,6 +326,151 @@ async function writeTimeOffTypes(value, cacheKey) {
 }
 
 // ===========================================================================
+// Entries: company-scoped read/write. The active company is addressed by
+// SK.entries ('ts:entries'); any other company by 'ts:entries:<companyId>'.
+// Both go through the same helpers so the diff/reassignment logic lives in one
+// place. The write cache is keyed by the SAME storage key, so each company
+// keeps its own snapshot. Mirrors the time_off_types helpers above.
+// ===========================================================================
+
+// Read one company's entries (keyed by date) and cache the snapshot under
+// `cacheKey`. Returns `fallback` when the company has no rows.
+async function readEntries(companyId, cacheKey, fallback) {
+  const { data, error } = await supabase
+    .from('entries')
+    .select('date, segments, time_off, notes, company_id')
+    .eq('company_id', companyId);
+  if (error) {
+    console.error('[storage] entries read failed:', error);
+    return fallback;
+  }
+
+  const out = {};
+  for (const row of (data || [])) {
+    out[row.date] = {
+      date: row.date,
+      segments: row.segments || [],
+      timeOff: row.time_off,
+      notes: row.notes,
+      // Carry the entry's own company so the editor can show and preserve it.
+      // Scoped reads only return this company, so it equals companyId here,
+      // but storing it keeps the write path's explicit-company choice
+      // authoritative.
+      companyId: row.company_id,
+    };
+  }
+
+  // Cache a deep snapshot so later mutations to `out` by the UI don't poison
+  // the diff baseline.
+  writeCache[cacheKey] = {
+    snapshot: JSON.parse(JSON.stringify(out)),
+    companyId,
+  };
+
+  if ((data || []).length === 0) return fallback;
+  return out;
+}
+
+// Diff `value` (entries keyed by date) against the snapshot cached under
+// `cacheKey` and apply the upsert/delete to that company's entries. Refuses to
+// write without a load-time cache so we never full-write from an unknown
+// baseline.
+async function writeEntries(value, cacheKey, userId) {
+  const cache = writeCache[cacheKey];
+  if (!cache || !cache.companyId) {
+    console.error('[storage] entries write attempted without a load-time cache; refusing to write');
+    return false;
+  }
+  const companyId = cache.companyId;
+  const oldSnap = cache.snapshot || {};
+  const newSnap = value || {};
+
+  // Diff
+  const toUpsert = [];
+  const toDelete = [];
+  // Entries that moved to a different company: the row under the OLD company
+  // must be removed so the entry doesn't linger there.
+  const toReassignDelete = [];
+  for (const date of Object.keys(newSnap)) {
+    const oldRow = oldSnap[date];
+    const newRow = newSnap[date];
+    if (!oldRow) {
+      toUpsert.push(newRow);
+    } else if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
+      toUpsert.push(newRow);
+      const oldCompany = oldRow.companyId || companyId;
+      const newCompany = newRow.companyId || companyId;
+      if (oldCompany !== newCompany) {
+        toReassignDelete.push({ date, company: oldCompany });
+      }
+    }
+  }
+  for (const date of Object.keys(oldSnap)) {
+    if (!newSnap[date]) toDelete.push(date);
+  }
+
+  if (toUpsert.length === 0 && toDelete.length === 0) {
+    // No changes; nothing to do
+    return true;
+  }
+
+  // Upserts: rely on the (user_id, company_id, date) unique constraint for
+  // conflict resolution. Map app shape to DB shape. The entry's explicit
+  // company is authoritative; companyId (the scoped company captured at load)
+  // only fills in when the entry has none.
+  if (toUpsert.length > 0) {
+    const rows = toUpsert.map(e => ({
+      user_id: userId,
+      company_id: e.companyId || companyId,
+      date: e.date,
+      segments: e.segments || [],
+      time_off: e.timeOff || null,
+      notes: e.notes || null,
+    }));
+    const { error: upsertErr } = await supabase
+      .from('entries')
+      .upsert(rows, { onConflict: 'user_id,company_id,date' });
+    if (upsertErr) {
+      console.error('[storage] entries upsert failed:', upsertErr);
+      return false;
+    }
+  }
+
+  for (const r of toReassignDelete) {
+    const { error: reassignErr } = await supabase
+      .from('entries')
+      .delete()
+      .eq('user_id', userId)
+      .eq('company_id', r.company)
+      .eq('date', r.date);
+    if (reassignErr) {
+      console.error('[storage] entries reassign delete failed:', reassignErr);
+      return false;
+    }
+  }
+
+  if (toDelete.length > 0) {
+    const { error: deleteErr } = await supabase
+      .from('entries')
+      .delete()
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .in('date', toDelete);
+    if (deleteErr) {
+      console.error('[storage] entries delete failed:', deleteErr);
+      return false;
+    }
+  }
+
+  // Success: update the cache snapshot to the new baseline.
+  writeCache[cacheKey] = {
+    snapshot: JSON.parse(JSON.stringify(newSnap)),
+    companyId,
+  };
+  return true;
+}
+
+// ===========================================================================
 // RemoteStore — Supabase backed (stub in 5b.1, filled in 5b.2+)
 // ===========================================================================
 
@@ -421,42 +566,16 @@ export const RemoteStore = {
           writeCache['ts:entries'] = { snapshot: {}, companyId: null };
           return fallback;
         }
+        return readEntries(companyId, 'ts:entries', fallback);
+      }
 
-        const { data, error } = await supabase
-          .from('entries')
-          .select('date, segments, time_off, notes, company_id')
-          .eq('company_id', companyId);
-        if (error) {
-          console.error('[storage] entries read failed:', error);
-          return fallback;
-        }
-
-        const out = {};
-        if (data) {
-          for (const row of data) {
-            out[row.date] = {
-              date: row.date,
-              segments: row.segments || [],
-              timeOff: row.time_off,
-              notes: row.notes,
-              // Carry the entry's own company so the editor can show and
-              // preserve it. Scoped reads only return the active company, so
-              // this equals companyId here, but storing it keeps the write
-              // path's explicit-company choice authoritative.
-              companyId: row.company_id,
-            };
-          }
-        }
-
-        // Cache a deep snapshot so later mutations to `out` by the UI
-        // don't poison the diff baseline.
-        writeCache['ts:entries'] = {
-          snapshot: JSON.parse(JSON.stringify(out)),
-          companyId,
-        };
-
-        if (data && data.length === 0) return fallback;
-        return out;
+      // Per-company entries, addressed by 'ts:entries:<companyId>'. Used by the
+      // per-company entries load to read any active company without disturbing
+      // the active-company cache that feeds state.entries.
+      if (key.startsWith('ts:entries:')) {
+        const companyId = key.slice('ts:entries:'.length);
+        if (!companyId) return fallback;
+        return readEntries(companyId, key, fallback);
       }
 
       if (key === 'ts:pays') {
@@ -558,98 +677,19 @@ export const RemoteStore = {
           console.error('[storage] entries write attempted while signed out');
           return false;
         }
-        const cache = writeCache['ts:entries'];
-        if (!cache || !cache.companyId) {
-          console.error('[storage] entries write attempted without a load-time cache; refusing to write');
+        return writeEntries(value, 'ts:entries', userId);
+      }
+
+      // Per-company entries write, addressed by 'ts:entries:<companyId>'. Diffs
+      // against that company's own cached snapshot; never touches the
+      // active-company cache.
+      if (key.startsWith('ts:entries:')) {
+        const userId = getSignedInUserId();
+        if (!userId) {
+          console.error('[storage] entries write attempted while signed out');
           return false;
         }
-        const companyId = cache.companyId;
-        const oldSnap = cache.snapshot || {};
-        const newSnap = value || {};
-
-        // Diff
-        const toUpsert = [];
-        const toDelete = [];
-        // Entries that moved to a different company: the row under the OLD
-        // company must be removed so the entry doesn't linger there.
-        const toReassignDelete = [];
-        for (const date of Object.keys(newSnap)) {
-          const oldRow = oldSnap[date];
-          const newRow = newSnap[date];
-          if (!oldRow) {
-            toUpsert.push(newRow);
-          } else if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
-            toUpsert.push(newRow);
-            const oldCompany = oldRow.companyId || companyId;
-            const newCompany = newRow.companyId || companyId;
-            if (oldCompany !== newCompany) {
-              toReassignDelete.push({ date, company: oldCompany });
-            }
-          }
-        }
-        for (const date of Object.keys(oldSnap)) {
-          if (!newSnap[date]) toDelete.push(date);
-        }
-
-        if (toUpsert.length === 0 && toDelete.length === 0) {
-          // No changes; nothing to do
-          return true;
-        }
-
-        // Upserts: rely on the (user_id, company_id, date) unique
-        // constraint for conflict resolution. Map app shape to DB shape.
-        // The entry's explicit company is authoritative; companyId (the active
-        // company captured at load) only fills in when the entry has none.
-        if (toUpsert.length > 0) {
-          const rows = toUpsert.map(e => ({
-            user_id: userId,
-            company_id: e.companyId || companyId,
-            date: e.date,
-            segments: e.segments || [],
-            time_off: e.timeOff || null,
-            notes: e.notes || null,
-          }));
-          const { error: upsertErr } = await supabase
-            .from('entries')
-            .upsert(rows, { onConflict: 'user_id,company_id,date' });
-          if (upsertErr) {
-            console.error('[storage] entries upsert failed:', upsertErr);
-            return false;
-          }
-        }
-
-        for (const r of toReassignDelete) {
-          const { error: reassignErr } = await supabase
-            .from('entries')
-            .delete()
-            .eq('user_id', userId)
-            .eq('company_id', r.company)
-            .eq('date', r.date);
-          if (reassignErr) {
-            console.error('[storage] entries reassign delete failed:', reassignErr);
-            return false;
-          }
-        }
-
-        if (toDelete.length > 0) {
-          const { error: deleteErr } = await supabase
-            .from('entries')
-            .delete()
-            .eq('user_id', userId)
-            .eq('company_id', companyId)
-            .in('date', toDelete);
-          if (deleteErr) {
-            console.error('[storage] entries delete failed:', deleteErr);
-            return false;
-          }
-        }
-
-        // Success: update the cache snapshot to the new baseline.
-        writeCache['ts:entries'] = {
-          snapshot: JSON.parse(JSON.stringify(newSnap)),
-          companyId,
-        };
-        return true;
+        return writeEntries(value, key, userId);
       }
 
       if (key === 'ts:pays') {

@@ -35,6 +35,17 @@ export function timeOffKeyFor(companyId) {
   return SK.timeOff + ':' + companyId;
 }
 
+/**
+ * Storage key for a SPECIFIC company's entries, scoped by company_id.
+ * `SK.entries` (no suffix) reads/writes the profile's ACTIVE company and feeds
+ * state.entries (the set every existing reader uses); this suffixed form
+ * addresses any other active company for the per-company entries load. Remote
+ * (Supabase) only. Mirrors timeOffKeyFor.
+ */
+export function entriesKeyFor(companyId) {
+  return SK.entries + ':' + companyId;
+}
+
 export const DEFAULT_PROFILE = {
   userId: 'me',
   name: 'You',

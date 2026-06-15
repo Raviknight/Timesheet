@@ -12,7 +12,7 @@ import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
-  migrateEntries, migrateCompanies, timeOffKeyFor,
+  migrateEntries, migrateCompanies, timeOffKeyFor, entriesKeyFor,
 } from './data/schema.js';
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
 import { ensureBootstrapped } from './data/bootstrap.js';
@@ -51,6 +51,13 @@ const state = {
   timeOffByCompany: {},
   companies: [],
   entries: {},
+  // Per-company entries, keyed by company_id, each a {date: entry} map. The
+  // ACTIVE company's entry shares the same object reference as state.entries
+  // above, so every existing reader of state.entries stays correct and the
+  // active company's output is unchanged. Other active companies keep their own
+  // map and are persisted under their own key. Remote (Supabase) only; in local
+  // mode this holds just the active company.
+  entriesByCompany: {},
   pays: [],
   ui: {
     currentView: 'dashboard',
@@ -58,6 +65,9 @@ const state = {
     payYearFilter: 'all',
     ppMode: 'current',
     ppOtherDate: null,
+    // Which company's Pay Period the landing tab strip is showing. null means
+    // the active company (the default, output-identical to single-company use).
+    ppCompanyId: null,
   },
 };
 
@@ -212,6 +222,77 @@ export function syncActiveTimeOff() {
 }
 
 /**
+ * Build state.entriesByCompany for every active company. The active company's
+ * entry is the SAME object reference as state.entries, so every existing reader
+ * of state.entries stays correct and its output is unchanged. Other active
+ * companies are read by their own key (remote only), priming each one's
+ * write-cache snapshot.
+ *
+ * In local mode (unauthenticated) there is only the single active company, so
+ * we map just that one and never touch the per-company keyed paths. Mirrors
+ * loadTimeOffByCompany.
+ */
+async function loadEntriesByCompany() {
+  state.entriesByCompany = {};
+  const activeId = String(activeCompany(state).id ?? '');
+  state.entriesByCompany[activeId] = state.entries;
+
+  if (getStorageMode() !== 'remote') return;
+
+  const actives = Array.isArray(state.companies)
+    ? state.companies.filter(c => c.isActive !== false)
+    : [];
+  for (const c of actives) {
+    const cid = String(c.id ?? '');
+    if (!cid || cid === activeId) continue;
+    const entries = await Store.get(entriesKeyFor(cid), null);
+    state.entriesByCompany[cid] = entries || {};
+  }
+}
+
+/**
+ * Load one company's entries into state.entriesByCompany if missing. Used when
+ * a company is edited/activated after boot. The active company is never
+ * overwritten here (it shares state.entries). Mirrors ensureTimeOffForCompany.
+ */
+export async function ensureEntriesForCompany(companyId) {
+  const cid = String(companyId ?? '');
+  if (!cid || state.entriesByCompany[cid]) return;
+  const activeId = String(activeCompany(state).id ?? '');
+  if (cid === activeId || getStorageMode() !== 'remote') {
+    state.entriesByCompany[cid] = state.entries;
+    return;
+  }
+  const entries = await Store.get(entriesKeyFor(cid), null);
+  state.entriesByCompany[cid] = entries || {};
+}
+
+/**
+ * Re-point the active company's per-company entry at the current state.entries
+ * object. Call after anything replaces that object wholesale (import/reload),
+ * so the shared-reference invariant for the active company holds. Mirrors
+ * syncActiveTimeOff.
+ */
+export function syncActiveEntries() {
+  const activeId = String(activeCompany(state).id ?? '');
+  state.entriesByCompany[activeId] = state.entries;
+}
+
+/**
+ * Persist one company's entries to the right key: the active company goes
+ * through SK.entries (the set state.entries feeds); any other company goes
+ * through its own company-scoped key. Returns the saveKey result.
+ */
+export function saveEntriesForCompany(companyId) {
+  const cid = String(companyId ?? '');
+  const entries = state.entriesByCompany[cid];
+  if (!entries) return Promise.resolve(false);
+  const activeId = String(activeCompany(state).id ?? '');
+  const key = cid === activeId ? SK.entries : entriesKeyFor(cid);
+  return saveKey(key, entries, 'Entry');
+}
+
+/**
  * Called when we detect that the user's Supabase session was lost
  * mid-session (e.g. signed out in another tab). Shows a toast,
  * signs out cleanly to clear any zombie auth state, and routes
@@ -268,6 +349,7 @@ async function loadAll() {
   } else {
     state.entries = {};
   }
+  await loadEntriesByCompany();
 
   if (pays) {
     state.pays = pays;
