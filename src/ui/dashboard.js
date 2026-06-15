@@ -184,11 +184,12 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
 
-  // Actual-hours tile: year-selectable, scoped to THIS company. On a company
-  // switch reset to the current year; period re-renders keep the chosen year.
+  // Annual block: a single year selector drives three read-only tiles, scoped
+  // to THIS company. On a company switch reset to the current year; period
+  // re-renders keep the chosen year.
   const curYear = new Date().getFullYear();
   if (companyChanged || !state.ui.ppActualYear) state.ui.ppActualYear = curYear;
-  const yearSel = document.getElementById('ppActualYear');
+  const yearSel = document.getElementById('ppAnnualYear');
   if (yearSel) {
     const years = new Set();
     for (const e of Object.values(entries)) years.add(e.date.slice(0, 4));
@@ -198,26 +199,27 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     // Clamp the remembered year to one this company actually has.
     if (!sorted.includes(String(state.ui.ppActualYear))) state.ui.ppActualYear = curYear;
     yearSel.value = String(state.ui.ppActualYear);
-    // Year change recomputes the tile only, leaving the rest of the dashboard.
+    // Year change recomputes the block only, leaving the rest of the dashboard.
     yearSel.onchange = () => {
       state.ui.ppActualYear = +yearSel.value;
-      renderActualHoursTile(state, entries);
+      renderAnnualBlock(state, entries, timeOffTypes);
     };
   }
-  renderActualHoursTile(state, entries);
+  renderAnnualBlock(state, entries, timeOffTypes);
 
   renderBalances(state, timeOffTypes, entries);
 }
 
 /**
- * Compute and render the actual-hours tile for the selected company's entries
- * and the year held in state.ui.ppActualYear:
- *   - current year  → Jan 1 through today (year-to-date), label "YTD actual hours"
- *   - a prior year  → that full calendar year, label "Actual hours <year>"
- * Worked hours only, summed from the existing per-entry computeHoursWorked with
- * no extra rounding. Read-only. Touches only the tile, not the dashboard.
+ * Compute and render the Annual block for the selected company's entries and
+ * the year held in state.ui.ppActualYear. Window is Jan 1 through today for the
+ * current year, or the full calendar year for a prior year. Three tiles:
+ *   - Actual hours:   exact UNROUNDED worked hours (computeHoursWorked, round=false)
+ *   - Paid time off:  Holiday additive bonus + PTO/Sick paid, excluding unpaid
+ *   - Total paid:     ROUNDED worked hours (pay basis) + the paid time off
+ * Read-only. Touches only the block, not the dashboard.
  */
-function renderActualHoursTile(state, entries) {
+function renderAnnualBlock(state, entries, timeOffTypes) {
   const now = new Date();
   const curYear = now.getFullYear();
   const year = +state.ui.ppActualYear || curYear;
@@ -227,15 +229,31 @@ function renderActualHoursTile(state, entries) {
   const end = isCurrent
     ? `${curYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
     : `${year}-12-31`;
-  let worked = 0;
+
+  let actual = 0;        // exact, unrounded worked
+  let roundedWorked = 0; // pay-basis worked
+  let paidTimeOff = 0;   // holiday bonus + pto/sick paid, excluding unpaid
   for (const e of Object.values(entries)) {
-    if (e.date >= start && e.date <= end) {
-      worked += computeHoursWorked(e, state.settings, state.companies);
+    if (e.date < start || e.date > end) continue;
+    actual += computeHoursWorked(e, state.settings, state.companies, false);
+    roundedWorked += computeHoursWorked(e, state.settings, state.companies);
+    if (e.timeOff === 'HOLIDAY') {
+      const workedH = computeHoursWorked(e, state.settings, state.companies);
+      const paidH = computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
+      paidTimeOff += paidH - workedH;
+    } else if (e.timeOff) {
+      const t = Array.isArray(timeOffTypes) ? timeOffTypes.find(x => x.code === e.timeOff) : null;
+      if (!(t && t.unpaid)) {
+        paidTimeOff += computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
+      }
     }
   }
-  document.getElementById('ppYtdWorked').textContent = formatHours(worked);
-  const labelEl = document.getElementById('ppActualLabel');
-  if (labelEl) labelEl.textContent = isCurrent ? 'YTD actual hours' : `Actual hours ${year}`;
+
+  document.getElementById('annActual').textContent = formatHours(actual);
+  document.getElementById('annPaidTimeOff').textContent = formatHours(paidTimeOff);
+  document.getElementById('annTotalPaid').textContent = formatHours(roundedWorked + paidTimeOff);
+  const labelEl = document.getElementById('annActualLabel');
+  if (labelEl) labelEl.textContent = isCurrent ? 'Actual hours (YTD)' : `Actual hours ${year}`;
 }
 
 function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
