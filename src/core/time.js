@@ -68,16 +68,18 @@ export function entrySegments(entry) {
 
 /**
  * Effective break minutes for a company: the company's own break_minutes when
- * set, otherwise the user-level settings.breakMinutes. Uses a null-check, NOT
- * a truthy check, so a deliberately stored 0 (no break) is honored rather than
- * falling through to the user setting.
+ * set, otherwise a flat default of 30. Uses a null-check, NOT a truthy check,
+ * so a deliberately stored 0 (no break) is honored. The user-level setting is
+ * no longer an inherit source; existing companies were seeded with their prior
+ * effective break at load (see app.js), so dropping the inherit is
+ * output-identical for them.
  *
- * @param {object}      settings  { breakMinutes }
- * @param {object|null} company   the company object (may be null → inherit)
+ * @param {object}      settings  unused; kept for call-site signature stability
+ * @param {object|null} company   the company object (null → 30)
  */
 export function resolveBreakMinutes(settings, company) {
   if (company && company.breakMinutes != null) return company.breakMinutes;
-  return settings ? settings.breakMinutes : undefined;
+  return 30;
 }
 
 /**

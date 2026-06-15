@@ -20,7 +20,7 @@ import { escapeHtml, formatLong } from '../core/format.js';
 import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes, resolveBreakMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
-import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
+import { resolveStandardDay, computeStandardDayHours, HARDCODED_FALLBACK } from '../data/standardDay.js';
 import { createCompany, deleteCompany } from '../data/bootstrap.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { supabase } from '../data/supabase.js';
@@ -37,10 +37,15 @@ let pbyDraft = null;
 export function renderSettings(state) {
   renderPerCompanyPayPeriod(state);
   const s = state.settings;
+  // VESTIGIAL: the user-level Hours card (break + Standard Day) no longer feeds
+  // the pay math; per-company break/Standard Day fully replaced it (3e.7). It
+  // is kept only as the one-time seed source for existing companies and is
+  // flagged for removal in a later chunk. Read standard_day directly here (the
+  // resolver no longer inherits it) so the card still shows the user's value.
   setVal('setHoursBreak', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
-  const sd = resolveStandardDay(s);
+  const sd = s.standard_day || HARDCODED_FALLBACK;
   setVal('setSdSeg1Start', sd.seg1Start || '');
   setVal('setSdSeg1End', sd.seg1End || '');
   setVal('setSdSeg2Start', sd.seg2Start || '');
@@ -132,9 +137,8 @@ function renderPerCompanyPayPeriod(state) {
     const wsd = c.weekStartDow ?? 1;
     const otPeriod = c.otPeriod || 'weekly';
     const otThreshold = c.otThreshold ?? 40;
-    // Per-company break + Standard Day. Blank inputs (value '') mean inherit.
-    // Break preserves a stored 0 via the != null check.
-    const inheritBreak = state.settings.breakMinutes ?? 30;
+    // Per-company break + Standard Day. A blank break defaults to 30; a blank
+    // Standard Day uses the hardcoded default. Break preserves a stored 0.
     const brkVal = c.breakMinutes != null ? c.breakMinutes : '';
     const sd1s = c.stdSeg1Start ?? '';
     const sd1e = c.stdSeg1End ?? '';
@@ -239,8 +243,8 @@ function renderPerCompanyPayPeriod(state) {
         <div style="font-weight:600; margin-bottom:6px">Break &amp; Standard Day</div>
         <div class="row">
           <div class="grow">
-            <label>Break minutes (blank inherits user setting: ${inheritBreak})</label>
-            <input type="number" min="0" step="1" data-pp-field="breakMinutes" value="${brkVal}" placeholder="${inheritBreak}">
+            <label>Break minutes (blank defaults to 30)</label>
+            <input type="number" min="0" step="1" data-pp-field="breakMinutes" value="${brkVal}" placeholder="30">
           </div>
           <div class="grow">
             <label>Standard Day total</label>
@@ -261,7 +265,6 @@ function renderPerCompanyPayPeriod(state) {
           <div class="grow"><label>Std seg 2 end</label>
             <input type="time" data-pp-field="stdSeg2End" value="${escapeHtml(sd2e)}"></div>
         </div>
-        <div class="help">Blank fields inherit the user-level Hours card. New weekday entries under this company prefill from Std seg 1.</div>
       </div>
       <div class="row" style="justify-content:flex-end; margin-top:8px">
         <button class="btn btn-sm btn-primary" data-pp-save>Save</button>

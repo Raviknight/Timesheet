@@ -55,17 +55,18 @@ function companyStandardDay(company) {
 /**
  * Resolve which standard day applies. Precedence:
  *   1. the company's own Standard Day, when it has one configured
- *   2. the user-configured standard_day
- *   3. the hardcoded fallback
- * Does not mutate input. When `company` is omitted or has no override, the
- * result is identical to the original user-level resolution.
+ *   2. the hardcoded fallback
+ * The user-level standard_day is no longer an inherit source; existing
+ * companies were seeded with their prior effective Standard Day at load (see
+ * app.js), so dropping the inherit is output-identical for them. Does not
+ * mutate input.
+ *
+ * @param {object} userSettings  unused; kept for call-site signature stability
+ * @param {object} company       the company object (no override → fallback)
  */
 export function resolveStandardDay(userSettings, company) {
   const cd = companyStandardDay(company);
   if (cd) return cd;
-  if (userSettings && userSettings.standard_day) {
-    return userSettings.standard_day;
-  }
   return HARDCODED_FALLBACK;
 }
 
