@@ -105,13 +105,15 @@ function companyForEntry(entry, companies) {
  *        value, including 0, is used as-is.
  * @returns {number} hours, 0 if invalid
  */
-export function computeSegmentHours(seg, date, settings, breakMinutes) {
+export function computeSegmentHours(seg, date, settings, breakMinutes, round = true) {
   const ci = timeToMinutes(seg.clockIn);
   const co = timeToMinutes(seg.clockOut);
   if (ci === null || co === null) return 0;
 
-  const ciR = roundQuarter(ci);
-  const coR = roundQuarter(co);
+  // 15-minute rounding is the pay basis (default). Pass round=false for an
+  // exact, unrounded read of clocked time (the Annual "Actual hours" tile).
+  const ciR = round ? roundQuarter(ci) : ci;
+  const coR = round ? roundQuarter(co) : co;
   let gross = coR - ciR;
   if (gross <= 0) return 0;
 
@@ -136,15 +138,17 @@ export function computeSegmentHours(seg, date, settings, breakMinutes) {
  * @param {object}   entry
  * @param {object}   settings
  * @param {object[]} [companies]  state.companies, to resolve the entry's break
+ * @param {boolean}  [round=true]  apply 15-minute rounding (the pay basis).
+ *        Pass false for an exact, unrounded total. Break is deducted either way.
  */
-export function computeHoursWorked(entry, settings, companies) {
+export function computeHoursWorked(entry, settings, companies, round = true) {
   if (!entry) return 0;
   const segs = entrySegments(entry);
   if (segs.length === 0) return 0;
   const breakMin = resolveBreakMinutes(settings, companyForEntry(entry, companies));
   let total = 0;
   for (const seg of segs) {
-    total += computeSegmentHours(seg, entry.date, settings, breakMin);
+    total += computeSegmentHours(seg, entry.date, settings, breakMin, round);
   }
   return total;
 }
