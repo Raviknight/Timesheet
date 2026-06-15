@@ -10,7 +10,7 @@
 
 import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
 import { computeHoursPaid, computeHoursWorked, entrySegments, dayShort, addDays } from '../core/time.js';
-import { escapeHtml, formatLong } from '../core/format.js';
+import { escapeHtml, formatLong, formatHours } from '../core/format.js';
 import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/balances.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
@@ -179,6 +179,21 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   document.getElementById('ppRegular').textContent = ppRegular.toFixed(2);
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
+
+  // YTD actual hours: raw worked hours for THIS company's entries dated Jan 1
+  // of the current year through today. Worked-only (no time-off), summed from
+  // the same per-entry computeHoursWorked the paychecks use, with no extra
+  // rounding on the total. Read-only.
+  const now = new Date();
+  const jan1 = `${now.getFullYear()}-01-01`;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  let ppYtdWorked = 0;
+  for (const e of Object.values(entries)) {
+    if (e.date >= jan1 && e.date <= today) {
+      ppYtdWorked += computeHoursWorked(e, state.settings, state.companies);
+    }
+  }
+  document.getElementById('ppYtdWorked').textContent = formatHours(ppYtdWorked);
 
   renderBalances(state, timeOffTypes, entries);
 }

@@ -21,6 +21,14 @@ export function formatLong(d) {
   });
 }
 
+/** "1,234.56" — hours with a thousands separator and two decimals */
+export function formatHours(n) {
+  return (+n || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 /** "$1,234" with no decimals — for money displays */
 export function formatMoney(n) {
   return '$' + (+n || 0).toLocaleString(undefined, {
