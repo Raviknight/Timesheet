@@ -15,8 +15,12 @@ import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/b
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 
-export function renderDashboard(state) {
-  const company = activeCompany(state);
+export function renderDashboard(state, selectedCompany = activeCompany(state)) {
+  const company = selectedCompany;
+  // Time-off types are per-company. Prefer the selected company's set; fall
+  // back to state.timeOffTypes (which is the active company's set, and is the
+  // SAME array reference held under its id in timeOffByCompany).
+  const timeOffTypes = state.timeOffByCompany?.[company.id] || state.timeOffTypes;
   const pp = getPayPeriodFor(state.ui.ppMode, state.ui.ppOtherDate, company);
   document.getElementById('ppRange').textContent =
     `${formatLong(pp.start)} — ${formatLong(pp.end)}`;
@@ -40,7 +44,7 @@ export function renderDashboard(state) {
     ? [{ ...rawWeeks[0], label: 'Period' }]
     : rawWeeks.map((w, i) => ({ ...w, label: 'Week ' + (i + 1) }));
   for (const w of weeks) {
-    wkContainer.appendChild(renderWeekCard(w, state, company));
+    wkContainer.appendChild(renderWeekCard(w, state, company, timeOffTypes));
   }
 
   // Totals. Mirrors the per-week card buckets so they reconcile:
@@ -58,10 +62,10 @@ export function renderDashboard(state) {
   for (const e of inPP) {
     if (e.timeOff === 'HOLIDAY') {
       const workedH = computeHoursWorked(e, state.settings);
-      const paidH = computeHoursPaid(e, state.settings, state.timeOffTypes);
+      const paidH = computeHoursPaid(e, state.settings, timeOffTypes);
       ppHoliday += paidH - workedH;
     } else if (e.timeOff) {
-      ppTimeOff += computeHoursPaid(e, state.settings, state.timeOffTypes);
+      ppTimeOff += computeHoursPaid(e, state.settings, timeOffTypes);
     }
   }
 
@@ -118,10 +122,10 @@ export function renderDashboard(state) {
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
 
-  renderBalances(state);
+  renderBalances(state, timeOffTypes);
 }
 
-function renderWeekCard(week, state, company) {
+function renderWeekCard(week, state, company, timeOffTypes) {
   const card = document.createElement('div');
   card.className = 'card week-card';
 
@@ -148,7 +152,7 @@ function renderWeekCard(week, state, company) {
 
   for (const dd of days) {
     const workedH = dd.empty ? 0 : computeHoursWorked(dd, state.settings);
-    const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, state.timeOffTypes);
+    const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, timeOffTypes);
     if (dd.timeOff === 'HOLIDAY') {
       worked += workedH;
       holiday += paidH - workedH;
@@ -203,14 +207,14 @@ function renderWeekCard(week, state, company) {
   return card;
 }
 
-function renderBalances(state) {
+function renderBalances(state, timeOffTypes = state.timeOffTypes) {
   const container = document.getElementById('balancesList');
   const entries = Object.values(state.entries);
   let html = '';
 
-  for (const t of state.timeOffTypes) {
+  for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
-      const usedHours = sumHoursForCode(entries, t.code, 'all', state.settings, state.timeOffTypes);
+      const usedHours = sumHoursForCode(entries, t.code, 'all', state.settings, timeOffTypes);
       const usedDays = countDaysForCode(entries, t.code, 'all');
       html += `<div style="margin-bottom:12px">
         <div class="row" style="justify-content:space-between">
@@ -223,7 +227,7 @@ function renderBalances(state) {
     }
     if (t.sharedPoolWith) continue;
 
-    const b = computePoolBalance(t, state.timeOffTypes, entries, state.settings);
+    const b = computePoolBalance(t, timeOffTypes, entries, state.settings);
     const barClass = (b.taken + b.scheduled) / b.poolHours >= 0.9 ? 'danger'
       : (b.taken + b.scheduled) / b.poolHours >= 0.7 ? 'warn' : '';
 
@@ -256,7 +260,7 @@ function renderBalances(state) {
     if (b.breakdownTypes.length > 1) {
       html += '<div class="help" style="margin-top:6px">';
       for (const bt of b.breakdownTypes) {
-        const u = sumHoursForCode(entries, bt.code, 'all', state.settings, state.timeOffTypes);
+        const u = sumHoursForCode(entries, bt.code, 'all', state.settings, timeOffTypes);
         html += `<span class="badge" style="margin-right:6px">${escapeHtml(bt.label)}: ${u.toFixed(1)} h</span>`;
       }
       html += '</div>';
