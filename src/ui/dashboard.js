@@ -65,6 +65,10 @@ function renderCompanyTabs(state, company) {
 
 export function renderDashboard(state, selectedCompany = selectedDashboardCompany(state)) {
   const company = selectedCompany;
+  // Detect a company-tab switch (vs a period re-render that keeps the tab) so
+  // the actual-hours year selector can reset to the current year on a switch.
+  const companyChanged =
+    String(state.ui.ppCompanyId ?? '') !== String(company.id ?? '');
   // Remember which company the landing is showing so the period buttons
   // (which re-render with no explicit company) keep the same tab.
   state.ui.ppCompanyId = company.id ?? null;
@@ -180,22 +184,58 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   document.getElementById('ppOT').textContent = ppOT.toFixed(2);
   document.getElementById('ppTimeOff').textContent = ppTimeOff.toFixed(2);
 
-  // YTD actual hours: raw worked hours for THIS company's entries dated Jan 1
-  // of the current year through today. Worked-only (no time-off), summed from
-  // the same per-entry computeHoursWorked the paychecks use, with no extra
-  // rounding on the total. Read-only.
-  const now = new Date();
-  const jan1 = `${now.getFullYear()}-01-01`;
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  let ppYtdWorked = 0;
-  for (const e of Object.values(entries)) {
-    if (e.date >= jan1 && e.date <= today) {
-      ppYtdWorked += computeHoursWorked(e, state.settings, state.companies);
-    }
+  // Actual-hours tile: year-selectable, scoped to THIS company. On a company
+  // switch reset to the current year; period re-renders keep the chosen year.
+  const curYear = new Date().getFullYear();
+  if (companyChanged || !state.ui.ppActualYear) state.ui.ppActualYear = curYear;
+  const yearSel = document.getElementById('ppActualYear');
+  if (yearSel) {
+    const years = new Set();
+    for (const e of Object.values(entries)) years.add(e.date.slice(0, 4));
+    years.add(String(curYear));
+    const sorted = [...years].sort().reverse();
+    yearSel.innerHTML = sorted.map(y => `<option value="${y}">${y}</option>`).join('');
+    // Clamp the remembered year to one this company actually has.
+    if (!sorted.includes(String(state.ui.ppActualYear))) state.ui.ppActualYear = curYear;
+    yearSel.value = String(state.ui.ppActualYear);
+    // Year change recomputes the tile only, leaving the rest of the dashboard.
+    yearSel.onchange = () => {
+      state.ui.ppActualYear = +yearSel.value;
+      renderActualHoursTile(state, entries);
+    };
   }
-  document.getElementById('ppYtdWorked').textContent = formatHours(ppYtdWorked);
+  renderActualHoursTile(state, entries);
 
   renderBalances(state, timeOffTypes, entries);
+}
+
+/**
+ * Compute and render the actual-hours tile for the selected company's entries
+ * and the year held in state.ui.ppActualYear:
+ *   - current year  → Jan 1 through today (year-to-date), label "YTD actual hours"
+ *   - a prior year  → that full calendar year, label "Actual hours <year>"
+ * Worked hours only, summed from the existing per-entry computeHoursWorked with
+ * no extra rounding. Read-only. Touches only the tile, not the dashboard.
+ */
+function renderActualHoursTile(state, entries) {
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const year = +state.ui.ppActualYear || curYear;
+  const isCurrent = year === curYear;
+  const pad = n => String(n).padStart(2, '0');
+  const start = `${year}-01-01`;
+  const end = isCurrent
+    ? `${curYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    : `${year}-12-31`;
+  let worked = 0;
+  for (const e of Object.values(entries)) {
+    if (e.date >= start && e.date <= end) {
+      worked += computeHoursWorked(e, state.settings, state.companies);
+    }
+  }
+  document.getElementById('ppYtdWorked').textContent = formatHours(worked);
+  const labelEl = document.getElementById('ppActualLabel');
+  if (labelEl) labelEl.textContent = isCurrent ? 'YTD actual hours' : `Actual hours ${year}`;
 }
 
 function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
