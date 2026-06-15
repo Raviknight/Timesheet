@@ -67,14 +67,43 @@ export function entrySegments(entry) {
 }
 
 /**
+ * Effective break minutes for a company: the company's own break_minutes when
+ * set, otherwise the user-level settings.breakMinutes. Uses a null-check, NOT
+ * a truthy check, so a deliberately stored 0 (no break) is honored rather than
+ * falling through to the user setting.
+ *
+ * @param {object}      settings  { breakMinutes }
+ * @param {object|null} company   the company object (may be null → inherit)
+ */
+export function resolveBreakMinutes(settings, company) {
+  if (company && company.breakMinutes != null) return company.breakMinutes;
+  return settings ? settings.breakMinutes : undefined;
+}
+
+/**
+ * Find the company an entry belongs to, by its companyId. Returns null when
+ * there is no match (no companies list, or the entry has no/unknown company),
+ * in which case break resolution falls back to the user setting. Output stays
+ * identical to the pre-per-company behavior whenever this is null.
+ */
+function companyForEntry(entry, companies) {
+  if (!Array.isArray(companies) || !entry || entry.companyId == null) return null;
+  const id = String(entry.companyId);
+  return companies.find(c => String(c.id ?? '') === id) || null;
+}
+
+/**
  * Hours for ONE segment.
  *
  * @param {object} seg  { clockIn, clockOut, breakTaken }
  * @param {string} date "YYYY-MM-DD" (needed to determine weekday)
  * @param {object} settings  { breakMinutes }
+ * @param {number} [breakMinutes]  effective break to deduct; when omitted,
+ *        falls back to settings.breakMinutes (the original behavior). A passed
+ *        value, including 0, is used as-is.
  * @returns {number} hours, 0 if invalid
  */
-export function computeSegmentHours(seg, date, settings) {
+export function computeSegmentHours(seg, date, settings, breakMinutes) {
   const ci = timeToMinutes(seg.clockIn);
   const co = timeToMinutes(seg.clockOut);
   if (ci === null || co === null) return 0;
@@ -84,7 +113,7 @@ export function computeSegmentHours(seg, date, settings) {
   let gross = coR - ciR;
   if (gross <= 0) return 0;
 
-  const breakDur = settings.breakMinutes || 0;
+  const breakDur = breakMinutes != null ? breakMinutes : (settings.breakMinutes || 0);
   if (seg.breakTaken && gross > 5 * 60 && breakDur > 0) {
     gross -= breakDur;
   }
@@ -96,14 +125,24 @@ export function computeSegmentHours(seg, date, settings) {
  * Worked hours for a day: sum of segment hours only. Ignores any time-off
  * code. Use this for OT calculations and anything that means "time the
  * user actually clocked in".
+ *
+ * Break is resolved per entry from the entry's own company (via `companies`),
+ * falling back to settings.breakMinutes. When `companies` is omitted, or the
+ * company has no override, the result is identical to the old single-break
+ * behavior.
+ *
+ * @param {object}   entry
+ * @param {object}   settings
+ * @param {object[]} [companies]  state.companies, to resolve the entry's break
  */
-export function computeHoursWorked(entry, settings) {
+export function computeHoursWorked(entry, settings, companies) {
   if (!entry) return 0;
   const segs = entrySegments(entry);
   if (segs.length === 0) return 0;
+  const breakMin = resolveBreakMinutes(settings, companyForEntry(entry, companies));
   let total = 0;
   for (const seg of segs) {
-    total += computeSegmentHours(seg, entry.date, settings);
+    total += computeSegmentHours(seg, entry.date, settings, breakMin);
   }
   return total;
 }
@@ -126,10 +165,12 @@ export function computeHoursWorked(entry, settings) {
  * @param {object[]} [timeOffTypes]  state.timeOffTypes; needed to resolve
  *                                   implied hours and additive flag for
  *                                   time-off entries
+ * @param {object[]} [companies]     state.companies; resolves the entry's
+ *                                   per-company break (passed to worked hours)
  */
-export function computeHoursPaid(entry, settings, timeOffTypes) {
+export function computeHoursPaid(entry, settings, timeOffTypes, companies) {
   if (!entry) return 0;
-  const segHrs = computeHoursWorked(entry, settings);
+  const segHrs = computeHoursWorked(entry, settings, companies);
   if (!entry.timeOff) return segHrs;
 
   let timeOffHrs = 8;
@@ -150,6 +191,6 @@ export function computeHoursPaid(entry, settings, timeOffTypes) {
  * explicit Worked / Paid variants so the intent is obvious at the call
  * site.
  */
-export function computeHours(entry, settings, timeOffTypes) {
-  return computeHoursPaid(entry, settings, timeOffTypes);
+export function computeHours(entry, settings, timeOffTypes, companies) {
+  return computeHoursPaid(entry, settings, timeOffTypes, companies);
 }

@@ -84,7 +84,7 @@ function pullHoursFromLog() {
     const type = stateRef.timeOffTypes.find(t => t.code === e.timeOff);
     return !type || type.unpaid !== true;
   });
-  const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings, stateRef.timeOffTypes), 0);
+  const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings, stateRef.timeOffTypes, stateRef.companies), 0);
   document.getElementById('pHours').value = hrs.toFixed(2);
   toast(`Pulled ${hrs.toFixed(2)} h from ${pp.start} → ${pp.end}`);
 }

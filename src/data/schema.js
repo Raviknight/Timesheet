@@ -181,5 +181,13 @@ export function migrateCompanies(companies) {
     isActive:            c.isActive            ?? true,
     otThreshold:         c.otThreshold         ?? 40,
     otPeriod:            c.otPeriod            ?? 'weekly',
+    // Per-company break + Standard Day. Default to null = inherit the
+    // user-level setting (NOT a concrete value), so unset companies behave
+    // exactly as before. break_minutes keeps a stored 0 via ??.
+    breakMinutes:        c.breakMinutes        ?? null,
+    stdSeg1Start:        c.stdSeg1Start        ?? null,
+    stdSeg1End:          c.stdSeg1End          ?? null,
+    stdSeg2Start:        c.stdSeg2Start        ?? null,
+    stdSeg2End:          c.stdSeg2End          ?? null,
   }));
 }

@@ -27,9 +27,11 @@ import { computeHours, fmtDate } from './time.js';
  * @param {object}   settings
  * @param {object[]} timeOffTypes  used by computeHours to resolve implied
  *                                 hours for segment-less time-off entries
+ * @param {object[]} [companies]   state.companies; resolves each entry's
+ *                                 per-company break inside computeHours
  * @returns {number} sum of hours
  */
-export function sumHoursForCode(entries, code, when, settings, timeOffTypes) {
+export function sumHoursForCode(entries, code, when, settings, timeOffTypes, companies) {
   const today = fmtDate(new Date());
   const yr = today.slice(0, 4);
   return entries
@@ -37,7 +39,7 @@ export function sumHoursForCode(entries, code, when, settings, timeOffTypes) {
     .filter(e => when === 'all'
       || (when === 'past' && e.date <= today)
       || (when === 'future' && e.date > today))
-    .reduce((s, e) => s + computeHours(e, settings, timeOffTypes), 0);
+    .reduce((s, e) => s + computeHours(e, settings, timeOffTypes, companies), 0);
 }
 
 export function countDaysForCode(entries, code, when) {
@@ -60,15 +62,15 @@ export function countDaysForCode(entries, code, when) {
  *   pctTaken, pctScheduled
  * }
  */
-export function computePoolBalance(ownerType, allTypes, entries, settings) {
+export function computePoolBalance(ownerType, allTypes, entries, settings, companies) {
   const sharedTypes = allTypes.filter(x => x.sharedPoolWith === ownerType.code);
   const breakdownTypes = [ownerType, ...sharedTypes];
 
   let taken = 0;
   let scheduled = 0;
   for (const t of breakdownTypes) {
-    taken += sumHoursForCode(entries, t.code, 'past', settings, allTypes);
-    scheduled += sumHoursForCode(entries, t.code, 'future', settings, allTypes);
+    taken += sumHoursForCode(entries, t.code, 'past', settings, allTypes, companies);
+    scheduled += sumHoursForCode(entries, t.code, 'future', settings, allTypes, companies);
   }
 
   const hpd = ownerType.hoursPerDay || 8;

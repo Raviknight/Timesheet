@@ -40,6 +40,13 @@ const fullRow = {
   monthly_start_day: null,
   advanced_anchor_date: null,
   advanced_cycle_days: null,
+  // A deliberately stored break of 0 must survive (?? not ||). Standard Day
+  // seg1 is set; seg2 is null.
+  break_minutes: 0,
+  std_seg1_start: '08:00',
+  std_seg1_end: '16:30',
+  std_seg2_start: null,
+  std_seg2_end: null,
 };
 
 eq(
@@ -59,6 +66,11 @@ eq(
     isActive: null,
     otThreshold: 40,
     otPeriod: 'weekly',
+    breakMinutes: 0,
+    stdSeg1Start: '08:00',
+    stdSeg1End: '16:30',
+    stdSeg2Start: null,
+    stdSeg2End: null,
   }
 );
 
@@ -85,6 +97,11 @@ eq(
     isActive: null,
     otThreshold: 40,
     otPeriod: 'weekly',
+    breakMinutes: null,
+    stdSeg1Start: null,
+    stdSeg1End: null,
+    stdSeg2Start: null,
+    stdSeg2End: null,
   }
 );
 
@@ -217,6 +234,11 @@ eq(
     isActive: true,
     otThreshold: 40,
     otPeriod: 'weekly',
+    breakMinutes: null,
+    stdSeg1Start: null,
+    stdSeg1End: null,
+    stdSeg2Start: null,
+    stdSeg2End: null,
   }
 );
 

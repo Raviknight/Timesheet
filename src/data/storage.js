@@ -131,6 +131,14 @@ export function companyRowToAppShape(row) {
     isActive: row.is_active ?? null,
     otThreshold: row.ot_threshold ?? 40,
     otPeriod: row.ot_period ?? 'weekly',
+    // Per-company break + Standard Day overrides. Each null means "inherit the
+    // user-level setting"; resolution happens in the resolvers, not here. Note
+    // break_minutes uses ?? (not ||) so a deliberately stored 0 survives.
+    breakMinutes: row.break_minutes ?? null,
+    stdSeg1Start: row.std_seg1_start ?? null,
+    stdSeg1End: row.std_seg1_end ?? null,
+    stdSeg2Start: row.std_seg2_start ?? null,
+    stdSeg2End: row.std_seg2_end ?? null,
   };
 }
 
@@ -149,6 +157,11 @@ const COMPANY_UPDATE_FIELDS = [
   ['isActive',            'is_active'],
   ['otThreshold',         'ot_threshold'],
   ['otPeriod',            'ot_period'],
+  ['breakMinutes',        'break_minutes'],
+  ['stdSeg1Start',        'std_seg1_start'],
+  ['stdSeg1End',          'std_seg1_end'],
+  ['stdSeg2Start',        'std_seg2_start'],
+  ['stdSeg2End',          'std_seg2_end'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,
@@ -516,7 +529,8 @@ export const RemoteStore = {
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
-            ' ot_threshold, ot_period'
+            ' ot_threshold, ot_period, break_minutes,' +
+            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end'
           );
         if (error) {
           console.error('[storage] companies read failed:', error);
@@ -934,7 +948,8 @@ export const RemoteStore = {
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
-            ' ot_threshold, ot_period'
+            ' ot_threshold, ot_period, break_minutes,' +
+            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end'
           );
         writeCache['ts:companies'] = {
           snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),

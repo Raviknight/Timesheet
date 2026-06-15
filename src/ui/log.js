@@ -90,7 +90,7 @@ export function renderLog(state) {
     let monthTotal = 0;
     for (const e of byMonth[m]) {
       if (!e.timeOff || e.timeOff === 'HOLIDAY') {
-        monthTotal += computeHours(e, state.settings, timeOffTypesFor(state, e._companyId));
+        monthTotal += computeHours(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies);
       }
     }
     html += `<div style="margin-top:14px;margin-bottom:6px;font-size:12px;font-weight:600;
@@ -99,7 +99,7 @@ export function renderLog(state) {
       <span class="muted" style="font-weight:400">· ${monthTotal.toFixed(1)} h</span>
     </div>`;
     for (const e of byMonth[m]) {
-      const h = computeHours(e, state.settings, timeOffTypesFor(state, e._companyId));
+      const h = computeHours(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies);
       const dn = dayShort(e.date);
       const day = e.date.slice(8, 10);
       const timeOffPill = e.timeOff
