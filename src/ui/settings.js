@@ -248,6 +248,10 @@ function ppCardFieldsHtml(c) {
           <div class="grow"><label>Std seg 2 end</label>
             <input type="time" data-pp-field="stdSeg2End" value="${escapeHtml(sd2e)}"></div>
         </div>
+        <div class="row" style="margin-top:6px">
+          <div class="grow"><label>Time-off cycle start (blank uses Jan 1 this year)</label>
+            <input type="date" data-pp-field="startDate" value="${escapeHtml(c.startDate ?? '')}"></div>
+        </div>
       </div>`;
 }
 
@@ -490,6 +494,9 @@ function buildPpCompanyFromCard(card) {
     stdSeg1End: strField('stdSeg1End'),
     stdSeg2Start: strField('stdSeg2Start'),
     stdSeg2End: strField('stdSeg2End'),
+    // Per-company cycle anchor for PTO accrual. Blank → null (engine then
+    // defaults to Jan 1 of the current year).
+    startDate: strField('startDate'),
   };
 }
 
@@ -574,7 +581,42 @@ function renderTOTypesForCompany(state, companyId, container) {
   let html = '';
   types.forEach((t, i) => {
     let pbyHtml = '';
+    let accrualHtml = '';
     if (t.countsAgainstPool && !t.sharedPoolWith) {
+      // Accrual config (chunk 4a). Every field at its default is null-equivalent,
+      // so a flat pool reads exactly like before. Conditional inputs (anchor
+      // date, carry cap) appear only for their option.
+      const gs = t.grantStyle || 'upfront';
+      const anchor = t.accrualAnchor || 'calendar';
+      const cmode = t.carryoverMode || 'none';
+      accrualHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
+        <div class="muted" style="font-size:0.85em; margin-bottom:6px">Accrual</div>
+        <div class="row" style="gap:6px; flex-wrap:wrap; align-items:flex-end">
+          <div style="flex:0 0 120px"><label>Grant style</label>
+            <select data-i="${i}" data-f="grantStyle">
+              <option value="upfront" ${gs === 'upfront' ? 'selected' : ''}>Up front</option>
+              <option value="accrued" ${gs === 'accrued' ? 'selected' : ''}>Accrued</option>
+            </select></div>
+          <div style="flex:0 0 130px"><label>Cycle anchor</label>
+            <select data-i="${i}" data-f="accrualAnchor">
+              <option value="calendar" ${anchor === 'calendar' ? 'selected' : ''}>Calendar</option>
+              <option value="anniversary" ${anchor === 'anniversary' ? 'selected' : ''}>Anniversary</option>
+              <option value="fiscal" ${anchor === 'fiscal' ? 'selected' : ''}>Fiscal</option>
+            </select></div>
+          ${anchor === 'fiscal' ? `<div style="flex:0 0 150px"><label>Anchor date</label>
+            <input type="date" data-i="${i}" data-f="anchorDate" value="${escapeHtml(t.anchorDate ?? '')}"></div>` : ''}
+          <div style="flex:0 0 110px"><label title="Probation before eligibility">Waiting days</label>
+            <input type="number" data-i="${i}" data-f="waitingDays" min="0" step="1" value="${t.waitingDays ?? ''}" placeholder="0"></div>
+          <div style="flex:0 0 120px"><label>Carry-over</label>
+            <select data-i="${i}" data-f="carryoverMode">
+              <option value="none" ${cmode === 'none' ? 'selected' : ''}>None</option>
+              <option value="cap" ${cmode === 'cap' ? 'selected' : ''}>Cap</option>
+              <option value="unlimited" ${cmode === 'unlimited' ? 'selected' : ''}>Unlimited</option>
+            </select></div>
+          ${cmode === 'cap' ? `<div style="flex:0 0 110px"><label>Cap (days)</label>
+            <input type="number" data-i="${i}" data-f="carryoverCap" min="0" step="0.5" value="${t.carryoverCap ?? ''}" placeholder="0"></div>` : ''}
+        </div>
+      </div>`;
       const overrides = t.poolByYear || {};
       const years = Object.keys(overrides).sort();
       const rowsHtml = years.length === 0
@@ -646,6 +688,7 @@ function renderTOTypesForCompany(state, companyId, container) {
             ).join('')}
           </select></div>
       </div>
+      ${accrualHtml}
       ${pbyHtml}
       <div class="row" style="margin-top:6px;justify-content:flex-end">
         <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
@@ -664,8 +707,15 @@ function renderTOTypesForCompany(state, companyId, container) {
       let v = inp.value;
       if (f === 'poolDays' || f === 'hoursPerDay') v = +v;
       else if (f === 'countsAgainstPool' || f === 'additive') v = v === 'true';
+      // Accrual fields: numbers blank → null (engine treats null as 0); the
+      // anchor date blank → null. grantStyle/accrualAnchor/carryoverMode stay
+      // strings.
+      else if (f === 'waitingDays' || f === 'carryoverCap') v = inp.value.trim() === '' ? null : +v;
+      else if (f === 'anchorDate') v = inp.value.trim() === '' ? null : v;
       types[i][f] = v;
       persist();
+      // Toggling the anchor or carry-over mode shows/hides a conditional input.
+      if (f === 'accrualAnchor' || f === 'carryoverMode') rerenderHere();
     };
   });
   list.querySelectorAll('input[data-pby-code]').forEach(inp => {
