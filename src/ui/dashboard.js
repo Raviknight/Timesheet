@@ -421,17 +421,25 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
 
   for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
-      // Holiday (additive) reports the flat per-day benefit, worked-on-holiday
-      // flowing to worked, not here. Reuse the dashboard's benefit sum so the
-      // two views cannot drift. Other non-pool types show total paid hours.
-      const usedHours = t.additive
-        ? sumBenefitForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies)
-        : sumHoursForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies);
       const usedDays = countDaysForCode(entries, t.code, 'all');
+      // Hours figure per type:
+      //   - Unpaid: an unpaid day is neither worked nor paid, so it carries no
+      //     hours here. Show the day count only.
+      //   - Holiday (additive): the flat per-day benefit, worked-on-holiday
+      //     flowing to worked, not here. Reuse the dashboard's benefit sum so
+      //     the two views cannot drift.
+      //   - Anything else paid: total paid hours.
+      let hoursLabel = '';
+      if (!t.unpaid) {
+        const usedHours = t.additive
+          ? sumBenefitForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies)
+          : sumHoursForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies);
+        hoursLabel = ` · ${usedHours.toFixed(1)} h`;
+      }
       html += `<div style="margin-bottom:12px">
         <div class="row" style="justify-content:space-between">
           <strong>${escapeHtml(t.label)}</strong>
-          <span class="muted">${usedDays} day${usedDays === 1 ? '' : 's'} · ${usedHours.toFixed(1)} h</span>
+          <span class="muted">${usedDays} day${usedDays === 1 ? '' : 's'}${hoursLabel}</span>
         </div>
         <div class="help">No pool tracked</div>
       </div>`;
