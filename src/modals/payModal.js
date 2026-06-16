@@ -8,7 +8,8 @@ import { SK } from '../data/schema.js';
 import { saveKey } from '../app.js';
 import { getPayPeriodFor } from '../core/payPeriod.js';
 import { companyByName } from '../data/activeCompany.js';
-import { computeHours, fmtDate, addDays } from '../core/time.js';
+import { fmtDate, addDays } from '../core/time.js';
+import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../core/coverage.js';
 import { escapeHtml } from '../core/format.js';
 import { setSyncIdle } from '../ui/topbar.js';
 import { toast } from '../ui/toast.js';
@@ -84,7 +85,14 @@ function pullHoursFromLog() {
     const type = stateRef.timeOffTypes.find(t => t.code === e.timeOff);
     return !type || type.unpaid !== true;
   });
-  const hrs = inPP.reduce((s, e) => s + computeHours(e, stateRef.settings, stateRef.timeOffTypes, stateRef.companies), 0);
+  // Honor pool coverage so the prefill matches the period totals: an over-pool
+  // or pending day pulls 0, covered days pull as before. Coverage is built from
+  // the same entries/types being summed.
+  const coverage = coverageFromPools(computeCompanyPools({
+    company, timeOffTypes: stateRef.timeOffTypes, entries: stateRef.entries,
+    settings: stateRef.settings, companies: stateRef.companies, asOf: fmtDate(new Date()),
+  }));
+  const hrs = inPP.reduce((s, e) => s + paidHoursWithCoverage(e, stateRef.settings, stateRef.timeOffTypes, stateRef.companies, coverage), 0);
   document.getElementById('pHours').value = hrs.toFixed(2);
   toast(`Pulled ${hrs.toFixed(2)} h from ${pp.start} → ${pp.end}`);
 }

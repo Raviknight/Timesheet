@@ -5,7 +5,8 @@
  * with monthly hour totals. Click any row to edit.
  */
 
-import { computeHours, entrySegments, dayShort, fmtDate } from '../core/time.js';
+import { entrySegments, dayShort, fmtDate } from '../core/time.js';
+import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../core/coverage.js';
 import { escapeHtml, monthName } from '../core/format.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
@@ -17,28 +18,60 @@ import { activeCompany } from '../data/activeCompany.js';
  * the rest come from state.entriesByCompany. With a single company this is just
  * that company's entries, as before, plus the label.
  */
-function allCompanyEntries(state) {
+/**
+ * The {cid, company, set} for every company whose entries the log shows: the
+ * active company's set is state.entries, the rest come from entriesByCompany.
+ * Shared by allCompanyEntries and the per-company coverage build so the two
+ * iterate the same companies.
+ */
+function companyEntrySets(state) {
   const companies = Array.isArray(state.companies) ? state.companies : [];
-  const actives = companies.filter(c => c.isActive !== false);
-  const nameById = {};
-  for (const c of companies) nameById[String(c.id ?? '')] = c.name;
-
   const byCompany = state.entriesByCompany || {};
   const activeId = String(activeCompany(state).id ?? '');
   // Seed with the active company so single-company / local mode always works
   // even before entriesByCompany is populated.
   const ids = new Set([activeId]);
-  for (const c of actives) ids.add(String(c.id ?? ''));
+  for (const c of companies.filter(c => c.isActive !== false)) ids.add(String(c.id ?? ''));
 
   const out = [];
   for (const cid of ids) {
     const set = byCompany[cid] || (cid === activeId ? state.entries : null);
     if (!set) continue;
+    out.push({ cid, company: companies.find(c => String(c.id ?? '') === cid) || null, set });
+  }
+  return out;
+}
+
+function allCompanyEntries(state) {
+  const nameById = {};
+  for (const c of (Array.isArray(state.companies) ? state.companies : [])) {
+    nameById[String(c.id ?? '')] = c.name;
+  }
+  const out = [];
+  for (const { cid, set } of companyEntrySets(state)) {
     for (const e of Object.values(set)) {
       out.push({ ...e, _companyId: cid, _companyName: nameById[cid] || '' });
     }
   }
   return out;
+}
+
+/**
+ * Pool coverage per company (date -> coverage), so a per-day paid figure reads
+ * the same as the dashboard. Current-cycle days honor coverage; out-of-scope
+ * dates (e.g. a prior log year) pay base, so historical rows are unchanged.
+ */
+function coverageByCompany(state) {
+  const asOf = fmtDate(new Date());
+  const map = {};
+  for (const { cid, company, set } of companyEntrySets(state)) {
+    const pools = computeCompanyPools({
+      company, timeOffTypes: timeOffTypesFor(state, cid), entries: set,
+      settings: state.settings, companies: state.companies, asOf,
+    });
+    map[cid] = coverageFromPools(pools);
+  }
+  return map;
 }
 
 /** Time-off types for a given company id, falling back to the active set. */
@@ -76,6 +109,9 @@ export function renderLog(state) {
     return;
   }
 
+  // Pool coverage per company, so per-day paid hours match the dashboard.
+  const covByCo = coverageByCompany(state);
+
   // Group by month
   const byMonth = {};
   for (const e of all) {
@@ -90,7 +126,7 @@ export function renderLog(state) {
     let monthTotal = 0;
     for (const e of byMonth[m]) {
       if (!e.timeOff || e.timeOff === 'HOLIDAY') {
-        monthTotal += computeHours(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies);
+        monthTotal += paidHoursWithCoverage(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies, covByCo[e._companyId]);
       }
     }
     html += `<div style="margin-top:14px;margin-bottom:6px;font-size:12px;font-weight:600;
@@ -99,7 +135,7 @@ export function renderLog(state) {
       <span class="muted" style="font-weight:400">· ${monthTotal.toFixed(1)} h</span>
     </div>`;
     for (const e of byMonth[m]) {
-      const h = computeHours(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies);
+      const h = paidHoursWithCoverage(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies, covByCo[e._companyId]);
       const dn = dayShort(e.date);
       const day = e.date.slice(8, 10);
       const timeOffPill = e.timeOff
