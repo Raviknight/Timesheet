@@ -161,6 +161,43 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### June 16, 2026: PTO accrual complete
+
+Shipped the full PTO accrual feature across a series of contained, mostly
+output-identical chunks. The canonical rules now live in `docs/LOGIC.md` under
+"PTO accrual"; this entry records the progression.
+
+- **Schema.** Added booking fields on entries (`status`, `booked_at`;
+  `created_at` already existed) and accrual config on time-off types (grant
+  style, cycle anchor, anchor date, waiting days, carry-over mode and cap),
+  plus a per-company hire date (`start_date`). Threaded through both storage
+  paths with null defaults.
+- **Engine.** `src/core/accrual.js`: a pure, hard-harnessed balance and
+  reservation engine (`computePoolAccrual`), never importing storage or UI.
+  Covers grant styles, the three cycle anchors, proration, waiting periods,
+  carry-over, multi-cycle chaining, and the booking-order reservation/overdraw
+  split. `scripts/test-accrual.mjs` proves each rule.
+- **Entry modal.** Sets `status` and `bookedAt` on save, with an
+  approved/pending toggle shown for time-off; `bookedAt` is stamped at the
+  first save that makes a day a time-off booking and preserved thereafter.
+- **Settings.** Added the accrual config UI per type and the company hire date,
+  defaulting to null-equivalent so flat pools read as before.
+- **Year-override retired.** `pool_days` was seeded from each type's current-year
+  override; the per-year UI was removed and `pool_by_year` left dormant (nothing
+  reads it). The allotment now reads `pool_days`.
+- **Hire date.** Renamed the per-company start-date field to "Hire date" and
+  guarded the waiting period: with no hire date there is no probation.
+- **Pay-calc coverage flip.** `src/core/coverage.js` adds
+  `paidHoursWithCoverage`, a wrapper over a frozen `computeHoursPaid`: a pool
+  day pays only when the engine marks it covered, while uncovered/pending days
+  drop to 0. Coverage is one per-company engine result shared by every
+  paid-hours surface (period totals, week cards, Annual tile, balances, the
+  paycheck Pull prefill, and the Daily Log). Stored paychecks are records and
+  are not recomputed.
+- **Cleanup.** Removed the vestigial user-level Hours and Standard Day cards
+  from Settings (per-company break and Standard Day already drove everything;
+  the one-time seed still reads the user values at load).
+
 ### June 16, 2026: One-click clock, two balances fixes, PTO accrual kickoff
 
 **One-click clock in/out per company (3e.9).** The Pay Period landing gained a

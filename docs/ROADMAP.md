@@ -67,14 +67,28 @@ backend. Needs a public punch endpoint, device registration and tokens,
 reconciliation of pushed events against manual edits, and an audit log of
 every clock event including edits.
 
+## Done
+
+- **PTO accrual** is complete: per-type allotment with up-front or accrued
+  grant, calendar / anniversary / fiscal cycle anchors off a per-person hire
+  date with first-cycle proration, waiting periods, carry-over (none / cap /
+  unlimited), shared pools, and a booking-order reservation model with a
+  coverage-aware pay calc. See `docs/LOGIC.md` "PTO accrual".
+
 ## Deferred
 
-- **Tenure-based PTO growth** is deferred to the company phase. The accrual
-  model (see `docs/LOGIC.md`) leaves the base allotment as a plain value, so a
-  pure tenure function can feed it later without changing the accrual rule.
-- **Paycheck and HR features** beyond record-keeping: approval workflows,
-  period-end exports per employee, and compliance reporting come after the
-  multi-tenant record-keeping core is solid.
+- **Tenure-based allotment growth** is deferred to the company phase. The
+  accrual model leaves the allotment as a plain value, so a pure tenure function
+  can feed it later without changing the accrual rule.
+- **Online request-and-approve workflow** is deferred. The data model already
+  carries `status` and `bookedAt`, so an employee request / manager approval
+  flow can drive them later without a schema change.
+- **Engine-side per-cycle `poolByYear` resolution** is deferred until a real
+  earlier hire date ever meets a non-none carry-over (today the allotment is
+  resolved in the caller from `pool_days`, keeping the engine frozen).
+- **Paycheck and HR features** beyond record-keeping: period-end exports per
+  employee and compliance reporting come after the multi-tenant record-keeping
+  core is solid.
 
 ## Things we explicitly aren't doing
 

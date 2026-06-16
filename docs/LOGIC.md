@@ -108,41 +108,62 @@ multiplied by 8 for hours). The app generalizes this to multiple pools with
 
 Code: `src/core/balances.js`.
 
-## PTO accrual model (in build)
+## PTO accrual
 
-This is the accrual model being built to replace the year-override pattern. It
-is not yet wired into the UI; this section is the settled business logic the
-implementation targets.
+The pool balance, accrual, and coverage model. The engine is pure
+(`src/core/accrual.js`, `computePoolAccrual`); the app feeds it per company and
+reads the result through one coverage wrapper (`src/core/coverage.js`).
 
-A pool's available balance for a person is derived from these inputs:
+- **Allotment.** Each pool type has an allotment in days (`pool_days`). Grant
+  style is either up front (the full allotment lands at cycle start) or accrued
+  (earned linearly across the cycle).
+- **Cycle anchor.** The cycle is anchored off a per-person hire date
+  (`company.start_date`), one of: calendar (Jan 1), hire anniversary (the hire
+  date's month and day each year), or fiscal (a fixed anchor date). The first
+  cycle prorates for a mid-cycle hire, so someone hired partway through earns a
+  fraction of that first cycle.
+- **Waiting / probation.** A waiting period delays eligibility from the hire
+  date; nothing earns or is payable before it. With no hire date recorded there
+  is no probation (the person is treated as past it), and the cycle falls back
+  to Jan 1 of the current year.
+- **Carry-over.** Per type: none, a cap, or unlimited. Carried balance stacks on
+  top of the next cycle's allotment, so a cap limits only the carried amount and
+  cap-plus-allotment can exceed the cap.
+- **Shared pools.** Types can share one pool via `sharedPoolWith`; the combined
+  allotment and all the sharing types' usage draw the one balance.
 
-- **Base allotment.** Days per year for the type. This is the plain value the
-  rule starts from. (Tenure-based growth is deferred to the company phase; a
-  pure tenure function can feed this value later without changing the rule.)
-- **Grant style.** Either granted up front at the start of the cycle, or accrued
-  linearly across the cycle (a per-period or per-day fraction of the allotment).
-- **Cycle anchor.** When the cycle starts and resets, off a per-person start
-  date. One of: calendar (Jan 1), hire anniversary (the start date's month and
-  day each year), or a fixed fiscal date.
-- **Mid-cycle proration.** The first partial cycle is prorated. A person who
-  starts partway through a cycle earns a fraction of the allotment for that
-  first cycle, proportional to the remaining span.
-- **Waiting / probation period.** An optional eligibility delay before any time
-  off can be taken or accrued. Until it elapses, no balance is available.
-- **Carry-forward.** Unused balance crossing a cycle boundary is one of: none
-  (reset to the new allotment), a cap (carry up to a maximum), or unlimited.
-  Carry-forward stacks on top of the new cycle's allotment.
-- **Shared pools.** Types can share one pool via `sharedPoolWith`; usage of any
-  sharing type draws the same balance, as today.
+**Reservation and booking.** Each time-off entry carries a status (approved or
+pending) and a `bookedAt` stamped at first save. Only approved days reserve the
+pool, in `bookedAt` order, falling back to `createdAt` then the time-off date
+for legacy rows. Reservation is by booking order, not date order: a future
+approved day reserves the pool now but pays only when its date occurs; a pending
+day neither reserves nor pays; denied or cancelled days are excluded.
 
-**Overdraw rule.** Pool time-off is paid from the balance in date order. Once
-the pool is exhausted, further days of that type are unpaid, but they stay
-categorized under that type. Exhaustion changes whether a day is paid, never
-what type it is.
+**Overdraw.** A pool day pays its per-day hours only if it was covered in
+booking order. Once the pool is reserved out, later or over-pool days are
+unpaid, but they stay categorized under their type. Holiday is never gated this
+way (see Time-off types).
 
-**Year-override is retired.** Instead of storing a per-year override and
-reconstructing past years, the model reads the current year's value as the
-opening allotment and runs the rule forward. Past years are not reconstructed.
+**Coverage application.** `paidHoursWithCoverage` (`src/core/coverage.js`) is a
+thin wrapper over `computeHoursPaid`, which is unchanged. It drops only
+explicitly uncovered or pending current-cycle pool days to zero; covered days
+and out-of-scope days (for example a prior year the engine did not walk) pay
+base. Coverage is computed once per company from a single engine result and read
+by every paid-hours surface, so they cannot drift: period totals, week cards,
+the Annual Total-paid tile, the balances tab, the paycheck Pull-from-period
+prefill, and the Daily Log. Stored paychecks are records of what was actually
+paid and are never recomputed.
+
+**Allotment source.** The per-cycle allotment reads `pool_days`. The retired
+per-year override `pool_by_year` was folded into `pool_days` and left dormant;
+resolution happens in the caller so the engine stays frozen. Engine-side
+per-cycle `poolByYear` is deferred until a real earlier hire date ever meets a
+non-none carry-over.
+
+Code: `src/core/accrual.js` (engine), `src/core/coverage.js` (per-company
+coverage and the pay wrapper), `src/core/balances.js` (pool grouping).
+
+## Pay-period anchoring
 
 Pay periods are anchored to a continuous week counter, not to calendar
 year-starts.
