@@ -425,6 +425,11 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
   // current calendar year when unset, so a flat calendar pool reads like today).
   const asOf = fmtDate(new Date());
   const curYear = asOf.slice(0, 4);
+  // A probation/waiting period only means something against a real hire date.
+  // With no hire date recorded we treat the person as past probation: fall back
+  // to Jan 1 for the cycle (as today) but pass waiting_days as 0 so the engine
+  // applies no probation gate.
+  const hasHireDate = !!(company && company.startDate);
   const startDate = (company && company.startDate) || `${curYear}-01-01`;
   // Allotment in days for a type: the flat poolDays. The per-year override
   // (poolByYear) is retired (4b); the seed UPDATE folded each type's current-
@@ -480,7 +485,8 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
       grantStyle: t.grantStyle || 'upfront',
       accrualAnchor: t.accrualAnchor || 'calendar',
       anchorDate: t.anchorDate || null,
-      waitingDays: t.waitingDays || 0,
+      // No hire date -> no probation gate (see hasHireDate above).
+      waitingDays: hasHireDate ? (t.waitingDays || 0) : 0,
       carryoverMode: t.carryoverMode || 'none',
       carryoverCap: t.carryoverCap || 0,
     };

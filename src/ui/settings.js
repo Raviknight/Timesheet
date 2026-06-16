@@ -240,8 +240,9 @@ function ppCardFieldsHtml(c) {
             <input type="time" data-pp-field="stdSeg2End" value="${escapeHtml(sd2e)}"></div>
         </div>
         <div class="row" style="margin-top:6px">
-          <div class="grow"><label>Time-off cycle start (blank uses Jan 1 this year)</label>
-            <input type="date" data-pp-field="startDate" value="${escapeHtml(c.startDate ?? '')}"></div>
+          <div class="grow"><label>Hire date</label>
+            <input type="date" data-pp-field="startDate" value="${escapeHtml(c.startDate ?? '')}">
+            <div class="help">Drives the probation/waiting check and the anniversary cycle anchor. Blank uses Jan 1 this year with no probation.</div></div>
         </div>
       </div>`;
 }
