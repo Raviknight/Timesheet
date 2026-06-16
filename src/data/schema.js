@@ -120,6 +120,13 @@ export function migrateEntry(e) {
     segments: out,
     timeOff: e.timeOff || null,
     notes: e.notes || null,
+    // PTO booking fields. Carried, not yet read by any calc or the modal.
+    // createdAt is remote-only and read-only: null on the local path. Kept here
+    // so the migrate pass (which runs over remote-read entries too) preserves
+    // the value readEntries exposes instead of stripping it.
+    status: e.status ?? null,
+    bookedAt: e.bookedAt ?? null,
+    createdAt: e.createdAt ?? null,
   };
 }
 

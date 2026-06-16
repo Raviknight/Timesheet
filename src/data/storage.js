@@ -374,7 +374,7 @@ async function writeTimeOffTypes(value, cacheKey) {
 async function readEntries(companyId, cacheKey, fallback) {
   const { data, error } = await supabase
     .from('entries')
-    .select('date, segments, time_off, notes, company_id')
+    .select('date, segments, time_off, notes, company_id, status, booked_at, created_at')
     .eq('company_id', companyId);
   if (error) {
     console.error('[storage] entries read failed:', error);
@@ -393,6 +393,11 @@ async function readEntries(companyId, cacheKey, fallback) {
       // but storing it keeps the write path's explicit-company choice
       // authoritative.
       companyId: row.company_id,
+      // PTO booking fields. created_at is DB-managed and read-only here: it is
+      // exposed on read but never written back (see the upsert payload below).
+      status: row.status ?? null,
+      bookedAt: row.booked_at ?? null,
+      createdAt: row.created_at ?? null,
     };
   }
 
@@ -462,6 +467,9 @@ async function writeEntries(value, cacheKey, userId) {
       segments: e.segments || [],
       time_off: e.timeOff || null,
       notes: e.notes || null,
+      status: e.status ?? null,
+      booked_at: e.bookedAt ?? null,
+      // created_at is intentionally omitted: it stays DB-default managed.
     }));
     const { error: upsertErr } = await supabase
       .from('entries')
