@@ -25,15 +25,6 @@ import { createCompany, deleteCompany } from '../data/bootstrap.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { supabase } from '../data/supabase.js';
 
-// UI state for the per-year override draft form.
-// null when no draft is active. When active:
-//   { companyId: string, typeCode: string, year: string, days: string,
-//     error: string|null }
-// companyId scopes the draft to one company's time-off card; typeCode binds it
-// to a time-off type by its stable identity (company_id + code), never by list
-// position, since time_off_types rows come back in no guaranteed order.
-let pbyDraft = null;
-
 export function renderSettings(state) {
   renderPerCompanyPayPeriod(state);
   const s = state.settings;
@@ -568,7 +559,7 @@ function updatePpCardPreview(card) {
 // Render one company's time-off types into `container`. All CRUD operates on
 // state.timeOffByCompany[companyId] and persists via saveTimeOff (which routes
 // the active company through the math-feeding key and others through their own
-// key). The per-year draft form is scoped to this company via pbyDraft.companyId.
+// key).
 function renderTOTypesForCompany(state, companyId, container) {
   const cid = String(companyId);
   const list = container;
@@ -580,7 +571,6 @@ function renderTOTypesForCompany(state, companyId, container) {
   }
   let html = '';
   types.forEach((t, i) => {
-    let pbyHtml = '';
     let accrualHtml = '';
     if (t.countsAgainstPool && !t.sharedPoolWith) {
       // Accrual config (chunk 4a). Every field at its default is null-equivalent,
@@ -617,46 +607,6 @@ function renderTOTypesForCompany(state, companyId, container) {
             <input type="number" data-i="${i}" data-f="carryoverCap" min="0" step="0.5" value="${t.carryoverCap ?? ''}" placeholder="0"></div>` : ''}
         </div>
       </div>`;
-      const overrides = t.poolByYear || {};
-      const years = Object.keys(overrides).sort();
-      const rowsHtml = years.length === 0
-        ? `<div class="muted" style="font-size:0.85em; margin-bottom:6px">No overrides. Default pool of ${t.poolDays || 0} days applies to all years.</div>`
-        : years.map(y => `
-          <div class="row" style="margin-bottom:4px; align-items:flex-end; gap:6px">
-            <div style="flex:0 0 90px"><label>Year</label>
-              <input type="number" data-pby-code="${escapeHtml(t.code)}" data-pby-year="${y}" data-pby-f="year" min="2000" max="2100" step="1" value="${y}"></div>
-            <div style="flex:0 0 110px"><label>Days</label>
-              <input type="number" data-pby-code="${escapeHtml(t.code)}" data-pby-year="${y}" data-pby-f="days" min="0" step="0.5" value="${overrides[y]}"></div>
-            <button class="btn btn-sm" data-pby-del-code="${escapeHtml(t.code)}" data-pby-del-year="${y}">Remove</button>
-          </div>`).join('');
-      const isDraftHere = pbyDraft && pbyDraft.companyId === cid && pbyDraft.typeCode === t.code;
-      let pbyAddSection = '';
-      if (isDraftHere) {
-        const errHtml = pbyDraft.error
-          ? `<div class="muted" style="font-size:0.8em; color:var(--danger); margin-top:4px">${pbyDraft.error}</div>`
-          : '';
-        pbyAddSection = `
-          <div style="margin-top:8px; padding:8px; border:1px dashed var(--border); border-radius:var(--radius)">
-            <div class="muted" style="font-size:0.85em; margin-bottom:6px">Add new override</div>
-            <div class="row" style="align-items:flex-end; gap:6px">
-              <div style="flex:0 0 90px"><label>Year</label>
-                <input type="number" id="pbyDraftYear" min="2000" max="2100" step="1" value="${pbyDraft.year}" placeholder="e.g. 2025"></div>
-              <div style="flex:0 0 110px"><label>Days</label>
-                <input type="number" id="pbyDraftDays" min="0" step="0.5" value="${pbyDraft.days}" placeholder="e.g. 6"></div>
-              <button class="btn btn-sm btn-primary" id="pbyDraftAdd">Add</button>
-              <button class="btn btn-sm" id="pbyDraftCancel">Cancel</button>
-            </div>
-            ${errHtml}
-          </div>`;
-      } else {
-        pbyAddSection = `<button class="btn btn-sm" data-pby-add="${escapeHtml(t.code)}" style="margin-top:8px">Add year override</button>`;
-      }
-      pbyHtml = `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
-        <div class="muted" style="font-size:0.85em; margin-bottom:2px">Per-year overrides</div>
-        <div class="muted" style="font-size:0.75em; margin-bottom:6px; font-style:italic">Applies to this company's policy only.</div>
-        ${rowsHtml}
-        ${pbyAddSection}
-      </div>`;
     }
     html += `<div style="border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:8px">
       <div class="row" style="margin-bottom:6px">
@@ -689,7 +639,6 @@ function renderTOTypesForCompany(state, companyId, container) {
           </select></div>
       </div>
       ${accrualHtml}
-      ${pbyHtml}
       <div class="row" style="margin-top:6px;justify-content:flex-end">
         <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
       </div>
@@ -718,105 +667,6 @@ function renderTOTypesForCompany(state, companyId, container) {
       if (f === 'accrualAnchor' || f === 'carryoverMode') rerenderHere();
     };
   });
-  list.querySelectorAll('input[data-pby-code]').forEach(inp => {
-    inp.onchange = () => {
-      const code = inp.dataset.pbyCode;
-      const oldYear = inp.dataset.pbyYear;
-      const f = inp.dataset.pbyF;
-      const t = types.find(x => x.code === code);
-      if (!t) { rerenderHere(); return; }
-      if (!t.poolByYear) t.poolByYear = {};
-      if (f === 'year') {
-        const parsed = parseInt(inp.value, 10);
-        if (!Number.isFinite(parsed) || parsed < 2000 || parsed > 2100) {
-          rerenderHere();
-          return;
-        }
-        const newYear = String(parsed);
-        if (newYear === oldYear) return;
-        const existingDays = t.poolByYear[oldYear];
-        delete t.poolByYear[oldYear];
-        t.poolByYear[newYear] = existingDays;
-      } else if (f === 'days') {
-        t.poolByYear[oldYear] = +inp.value;
-      }
-      if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
-      persist();
-      rerenderHere();
-    };
-  });
-  list.querySelectorAll('button[data-pby-del-code]').forEach(btn => {
-    btn.onclick = () => {
-      const code = btn.dataset.pbyDelCode;
-      const y = btn.dataset.pbyDelYear;
-      const t = types.find(x => x.code === code);
-      if (t && t.poolByYear) {
-        delete t.poolByYear[y];
-        if (Object.keys(t.poolByYear).length === 0) delete t.poolByYear;
-      }
-      persist();
-      rerenderHere();
-    };
-  });
-  list.querySelectorAll('button[data-pby-add]').forEach(btn => {
-    btn.onclick = () => {
-      pbyDraft = {
-        companyId: cid,
-        typeCode: btn.dataset.pbyAdd,
-        year: '',
-        days: '',
-        error: null,
-      };
-      rerenderHere();
-    };
-  });
-
-  const draftYearInput = list.querySelector('#pbyDraftYear');
-  const draftDaysInput = list.querySelector('#pbyDraftDays');
-  const draftAddBtn = list.querySelector('#pbyDraftAdd');
-  const draftCancelBtn = list.querySelector('#pbyDraftCancel');
-
-  if (draftYearInput) {
-    draftYearInput.oninput = () => { pbyDraft.year = draftYearInput.value; };
-  }
-  if (draftDaysInput) {
-    draftDaysInput.oninput = () => { pbyDraft.days = draftDaysInput.value; };
-  }
-  if (draftCancelBtn) {
-    draftCancelBtn.onclick = () => {
-      pbyDraft = null;
-      rerenderHere();
-    };
-  }
-  if (draftAddBtn) {
-    draftAddBtn.onclick = () => {
-      const yr = parseInt(pbyDraft.year, 10);
-      const days = parseFloat(pbyDraft.days);
-      if (!Number.isFinite(yr) || yr < 2000 || yr > 2100) {
-        pbyDraft.error = 'Year must be between 2000 and 2100.';
-        rerenderHere();
-        return;
-      }
-      if (!Number.isFinite(days) || days < 0) {
-        pbyDraft.error = 'Days must be 0 or greater.';
-        rerenderHere();
-        return;
-      }
-      const t = types.find(x => x.code === pbyDraft.typeCode);
-      if (!t) { pbyDraft = null; rerenderHere(); return; }
-      if (!t.poolByYear) t.poolByYear = {};
-      const yrKey = String(yr);
-      if (t.poolByYear[yrKey] != null) {
-        pbyDraft.error = `Override for ${yrKey} already exists. Edit the existing row instead.`;
-        rerenderHere();
-        return;
-      }
-      t.poolByYear[yrKey] = days;
-      pbyDraft = null;
-      persist();
-      rerenderHere();
-    };
-  }
   list.querySelectorAll('button[data-del]').forEach(btn => {
     btn.onclick = () => {
       if (!confirm(`Remove ${types[+btn.dataset.del].label}?`)) return;

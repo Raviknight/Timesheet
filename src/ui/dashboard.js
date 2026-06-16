@@ -426,10 +426,10 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
   const asOf = fmtDate(new Date());
   const curYear = asOf.slice(0, 4);
   const startDate = (company && company.startDate) || `${curYear}-01-01`;
-  // Effective allotment in days for a type THIS year: the poolByYear override
-  // for the current year if present, else the flat poolDays.
-  const effDays = m =>
-    (m.poolByYear && m.poolByYear[curYear] != null) ? m.poolByYear[curYear] : (m.poolDays || 0);
+  // Allotment in days for a type: the flat poolDays. The per-year override
+  // (poolByYear) is retired (4b); the seed UPDATE folded each type's current-
+  // year override into pool_days, so this reads the same size as before.
+  const effDays = m => (m.poolDays || 0);
 
   for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
