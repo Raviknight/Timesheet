@@ -172,6 +172,101 @@ approx('shared pool pays 96h across both types', sharedPool.totalPaidHours, 96);
 approx('shared pool overdraws 8h (104 used - 96 pool)', sharedPool.totalUnpaidHours, 8);
 
 // ---------------------------------------------------------------------------
+// 9. Reservation: book-future-then-urgent. A 10-day vacation booked early but
+//    dated far out is covered; a nearer-dated urgent day booked later overflows
+//    and is unpaid; available reflects the vacation reservation now.
+// ---------------------------------------------------------------------------
+console.log('\n== 9. reservation: book-future-then-urgent ==');
+const resvPolicy = { poolDays: 10, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar' };
+const resvUsage = [
+  // 10-day vacation (80h) booked Mar 1, dated Sep 1 (far future).
+  { date: '2026-09-01', hours: 80, code: 'PTO', status: 'approved', bookedAt: '2026-03-01T09:00:00Z' },
+  // 1 urgent day (8h) booked later (May 1), dated sooner (Jun 15), overflows.
+  { date: '2026-06-15', hours: 8, code: 'PTO', status: 'approved', bookedAt: '2026-05-01T09:00:00Z' },
+];
+const before = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-06-01', usage: resvUsage });
+const vac = before.overdraw.find(o => o.date === '2026-09-01');
+const urg = before.overdraw.find(o => o.date === '2026-06-15');
+eq('vacation (earlier booking) is covered', vac.covered, true);
+approx('vacation reserves the full 80h', vac.reservedHours, 80);
+eq('urgent (later booking) is NOT covered', urg.covered, false);
+approx('urgent reserves 0h (pool already reserved out)', urg.reservedHours, 0);
+approx('available reflects the vacation reservation (0h left)', before.availableHours, 0);
+approx('reserved-now total = 80h', before.totalReservedHours, 80);
+eq('covered vacation has not occurred yet', vac.occurred, false);
+approx('nothing paid to date (covered day is future)', before.totalPaidHours, 0);
+
+// Same bookings, later as-of: both dates have arrived; pay timing turns on.
+const after = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-10-01', usage: resvUsage });
+const vac2 = after.overdraw.find(o => o.date === '2026-09-01');
+const urg2 = after.overdraw.find(o => o.date === '2026-06-15');
+eq('vacation now occurred', vac2.occurred, true);
+approx('vacation now paid 80h', vac2.paidHours, 80);
+approx('urgent now unpaid 8h (overflow)', urg2.unpaidHours, 8);
+approx('available still 0h after both occur', after.availableHours, 0);
+
+// ---------------------------------------------------------------------------
+// 10. Pending shows but does not reserve or pay. Denied/cancelled vanish.
+// ---------------------------------------------------------------------------
+console.log('\n== 10. pending shows but does not reserve ==');
+const pendUsage = [
+  { date: '2026-03-01', hours: 8, code: 'PTO', status: 'approved', bookedAt: '2026-02-01T09:00:00Z' },
+  { date: '2026-04-01', hours: 8, code: 'PTO', status: 'pending',  bookedAt: '2026-02-15T09:00:00Z' },
+];
+const pend = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-06-01', usage: pendUsage });
+const pday = pend.overdraw.find(o => o.date === '2026-04-01');
+eq('pending day is present in output', !!pday, true);
+eq('pending day status is pending', pday.status, 'pending');
+approx('pending day reserves 0h', pday.reservedHours, 0);
+approx('pending day pays 0h', pday.paidHours, 0);
+approx('only the approved day reserves (8h)', pend.usedHours, 8);
+approx('available = 80 - 8 = 72h (pending did not reduce it)', pend.availableHours, 72);
+const dz = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-06-01', usage: [
+  { date: '2026-03-01', hours: 8, status: 'denied' },
+  { date: '2026-03-02', hours: 8, status: 'cancelled' },
+]});
+eq('denied/cancelled excluded from output', dz.overdraw.length, 0);
+approx('denied/cancelled reserve nothing', dz.usedHours, 0);
+
+// ---------------------------------------------------------------------------
+// 11. Legacy rows: null status = approved, ordered by createdAt then date.
+//     A pool of 1 day. The May-dated row was created first, so it wins coverage
+//     over the Apr-dated row created later, even though April's date is sooner.
+// ---------------------------------------------------------------------------
+console.log('\n== 11. legacy rows: null status, createdAt-then-date order ==');
+const legacyPool = { poolDays: 1, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar' };
+const legacyUsage = [
+  { date: '2026-04-01', hours: 8, code: 'PTO', createdAt: '2026-01-10T00:00:00Z' }, // sooner date, later created
+  { date: '2026-05-01', hours: 8, code: 'PTO', createdAt: '2026-01-05T00:00:00Z' }, // later date, earlier created
+];
+const legacy = computePoolAccrual({ policy: legacyPool, startDate: '2026-01-01', asOf: '2026-06-01', usage: legacyUsage });
+const apr = legacy.overdraw.find(o => o.date === '2026-04-01');
+const may = legacy.overdraw.find(o => o.date === '2026-05-01');
+eq('legacy null status treated as approved', may.status, 'approved');
+eq('earlier createdAt (May-dated) is covered', may.covered, true);
+eq('later createdAt (Apr-dated) uncovered despite sooner date', apr.covered, false);
+approx('approved legacy rows reserve the pool (8h)', legacy.usedHours, 8);
+// Both createdAt null -> key falls back to the time-off date.
+const dateFallback = computePoolAccrual({ policy: legacyPool, startDate: '2026-01-01', asOf: '2026-06-01', usage: [
+  { date: '2026-05-01', hours: 8, code: 'PTO' },
+  { date: '2026-04-01', hours: 8, code: 'PTO' },
+]});
+eq('all-null falls back to date order: Apr covered', dateFallback.overdraw.find(o => o.date === '2026-04-01').covered, true);
+eq('all-null falls back to date order: May uncovered', dateFallback.overdraw.find(o => o.date === '2026-05-01').covered, false);
+
+// ---------------------------------------------------------------------------
+// 12. A covered future day reserves now but is not paid until its date arrives.
+// ---------------------------------------------------------------------------
+console.log('\n== 12. covered future day pays only when its date arrives ==');
+const futUsage = [{ date: '2026-08-01', hours: 16, code: 'PTO', status: 'approved', bookedAt: '2026-02-01T09:00:00Z' }];
+const futBefore = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-06-01', usage: futUsage });
+const futAfter = computePoolAccrual({ policy: resvPolicy, startDate: '2026-01-01', asOf: '2026-09-01', usage: futUsage });
+eq('future day covered (reserved now)', futBefore.overdraw[0].covered, true);
+approx('reserved now reduces available (80 - 16 = 64h)', futBefore.availableHours, 64);
+approx('paid-to-date is 0 before its date', futBefore.totalPaidHours, 0);
+approx('paid becomes 16h once the date has arrived', futAfter.totalPaidHours, 16);
+
+// ---------------------------------------------------------------------------
 // Concrete cases printed for eyeballing the semantics before wiring.
 // ---------------------------------------------------------------------------
 console.log('\n---- concrete cases (eyeball) ----');
@@ -188,6 +283,26 @@ show('carry unlimited', carryUnl);
 show('3-cycle accrued chain, unlimited', chain);
 show('overdraw: six 8h days on a 5d pool', overdraw);
 show('shared pool PTO+Sick = 12d, 104h used', sharedPool);
+
+const showBookings = (label, r) => {
+  console.log(label);
+  for (const o of r.overdraw) {
+    console.log(
+      `  ${o.date} ${o.code} [${o.status}] book@${o.bookedAt ?? '-'} ${round(o.hours)}h` +
+      ` -> reserved ${round(o.reservedHours)}h covered=${o.covered} occurred=${o.occurred}` +
+      ` | paid ${round(o.paidHours)}h unpaid ${round(o.unpaidHours)}h`
+    );
+  }
+  console.log(
+    `  => available ${round(r.availableHours)}h | reserved-now ${round(r.totalReservedHours)}h` +
+    ` | paid-to-date ${round(r.totalPaidHours)}h`
+  );
+};
+console.log('');
+showBookings('book-future-then-urgent @ 2026-06-01 (both future)', before);
+showBookings('book-future-then-urgent @ 2026-10-01 (both occurred)', after);
+showBookings('pending shows but does not reserve', pend);
+showBookings('legacy createdAt ordering (1-day pool)', legacy);
 
 console.log('\n' + (fail === 0 ? `All ${pass} accrual self-tests passed.` : `${fail} FAILED, ${pass} passed.`));
 process.exit(fail === 0 ? 0 : 1);

@@ -3,8 +3,9 @@
  *
  * PTO accrual balance engine. A standalone PURE module: given a pool policy, a
  * per-person start date, an as-of date, and the usage entries, it returns the
- * cycle chain, carried-in, earned-to-date, used, available balance, and a
- * date-ordered overdraw split. It computes; it does not read or write.
+ * cycle chain, carried-in, earned-to-date, reserved/used, available balance,
+ * and a reservation-order coverage split. It computes; it does not read or
+ * write.
  *
  * Deliberately decoupled: imports only pure date helpers from core/time.js,
  * never storage, UI, schema, or app state. Nothing calls it yet (chunk 2 is the
@@ -24,9 +25,20 @@
  *     per mode: 'none' = 0, 'cap' = min(leftover, cap), 'unlimited' = leftover.
  *     The cap limits only the carried amount; it stacks on top of the next
  *     allotment, so cap-plus-carry can exceed the cap.
- *   - Overdraw: usage consumes available in date order; once available is
- *     exhausted, further pool days are unpaid (over balance) but stay
- *     categorized under their type.
+ *   - Reservation model: time off reserves the pool in BOOKING order, not date
+ *     order. Booking order is bookedAt, then createdAt, then the time-off date
+ *     for legacy rows; ties broken by date, then a stable input index. A
+ *     booking is covered (and paid when its day occurs) only if the pool still
+ *     had room at its position in booking order; once the pool is reserved out,
+ *     later bookings are unpaid even if their date is sooner. Approved future
+ *     days reserve the pool now, so available reflects them.
+ *   - Status: null is treated as approved (legacy). Only approved days reserve
+ *     and are pay-eligible. Pending days are returned but never reserve or pay.
+ *     Denied and cancelled days are excluded entirely.
+ *   - Payment timing stays separate from reservation: each booking carries its
+ *     date, covered flag, and reserved hours, so the pay calc pays covered days
+ *     in the period their date falls and zero for uncovered ones. Earned-to-
+ *     date for the current cycle still uses the as-of date.
  *   - Shared pool: types linked by sharedPoolWith form one combined pool. Use
  *     mergeSharedPolicy() to sum allotments, then pass the combined usage.
  *
@@ -124,8 +136,10 @@ export function mergeSharedPolicy(owner, sharedTypes = []) {
  *   carryoverCap    number  cap in DAYS, used when mode is 'cap'
  * @param {string}   opts.startDate per-person start date 'YYYY-MM-DD'
  * @param {string}   opts.asOf      as-of date 'YYYY-MM-DD'
- * @param {object[]} [opts.usage]   usage entries: { date, hours, code? }.
- *                                  Only entries on or before asOf are counted.
+ * @param {object[]} [opts.usage]   usage entries:
+ *   { date, hours, code?, status?, bookedAt?, createdAt? }.
+ *   status null = approved. Future-dated approved days are included (they
+ *   reserve the pool now). Days dated beyond the current cycle are out of scope.
  *
  * @returns {{
  *   eligibilityDate: string,
@@ -135,18 +149,21 @@ export function mergeSharedPolicy(owner, sharedTypes = []) {
  *   cycles: Array<{
  *     index: number, start: string, end: string,
  *     carriedInHours: number, fullEarnedHours: number,
- *     usedPaidHours: number, endBalanceHours: number, carriedOutHours: number,
- *     isCurrent: boolean
+ *     reservedHours: number, usedPaidHours: number,
+ *     endBalanceHours: number, carriedOutHours: number, isCurrent: boolean
  *   }>,
  *   carriedInHours: number,
  *   earnedHours: number,
  *   earnedFractionalDays: number,
  *   earnedWholeDays: number,
- *   usedHours: number,
+ *   usedHours: number,        // reserved in the current cycle (incl future-dated covered)
  *   availableHours: number,
  *   availableDays: number,
- *   overdraw: Array<{ date: string, code: (string|null), hours: number,
+ *   overdraw: Array<{ date: string, code: (string|null), status: string,
+ *                     bookedAt: (string|null), hours: number,
+ *                     reservedHours: number, covered: boolean, occurred: boolean,
  *                     paidHours: number, unpaidHours: number }>,
+ *   totalReservedHours: number,
  *   totalPaidHours: number,
  *   totalUnpaidHours: number
  * }}
@@ -182,13 +199,33 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
     }
   }
 
-  // Usage sorted by date, restricted to on-or-before asOf.
-  const sortedUsage = usage
-    .filter(u => daysBetween(u.date, asOf) >= 0)
-    .slice()
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  // Classify usage. Status null is legacy = approved. Denied/cancelled are
+  // dropped entirely; pending is kept for display but never reserves or pays.
+  // Each entry keeps its input index as the ultimate stable tiebreaker, and a
+  // `reserved` field filled in during the per-cycle pass.
+  const considered = usage.map((u, i) => ({
+    src: u,
+    idx: i,
+    date: u.date,
+    code: u.code ?? null,
+    hours: u.hours || 0,
+    bookedAt: u.bookedAt ?? null,
+    status: u.status == null ? 'approved' : u.status,
+    reserved: 0,
+  })).filter(u => u.status === 'approved' || u.status === 'pending');
 
-  const overdraw = [];
+  // Reservation order: bookedAt, then createdAt, then the time-off date for
+  // legacy rows; ties broken by date, then input index. ISO-8601 strings sort
+  // chronologically under plain string comparison, so legacy rows (key = date)
+  // reproduce date order, keeping the pre-reservation cases intact.
+  const bookingKey = u => u.bookedAt ?? u.src.createdAt ?? u.date;
+  const byBooking = (a, b) => {
+    const ka = bookingKey(a), kb = bookingKey(b);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return a.idx - b.idx;
+  };
+
   const cycles = [];
   let carriedIn = 0;
 
@@ -221,49 +258,42 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
       }
     }
 
-    // Consume this cycle's usage in date order against carriedIn + earnedByDate.
-    const cycleUsage = sortedUsage.filter(
-      u => daysBetween(start, u.date) >= 0 && daysBetween(u.date, end) > 0
-    );
-    let usedPaid = 0;
-    for (const u of cycleUsage) {
-      const hours = u.hours || 0;
-      const availableAt = Math.max(0, carriedIn + earnedByDate(u.date) - usedPaid);
-      const paid = Math.min(hours, availableAt);
-      const unpaid = hours - paid;
-      usedPaid += paid;
-      overdraw.push({
-        date: u.date,
-        code: u.code ?? null,
-        hours,
-        paidHours: paid,
-        unpaidHours: unpaid,
-      });
+    // The pool for THIS cycle. The current cycle reserves against earned-to-
+    // date (asOf); a closed cycle reserves against its full earned. Carry-in
+    // stacks on top either way.
+    const earnedHere = isCurrent ? earnedByDate(asOf) : fullEarned;
+    const capacity = carriedIn + earnedHere;
+
+    // Approved bookings whose DATE falls in this cycle, reserved in booking
+    // order against the pool. The current cycle includes future-dated days
+    // (date < end): they consume the pool now.
+    const cycleApproved = considered
+      .filter(u => u.status === 'approved'
+        && daysBetween(start, u.date) >= 0 && daysBetween(u.date, end) > 0)
+      .sort(byBooking);
+
+    let reserved = 0;
+    for (const u of cycleApproved) {
+      const room = Math.max(0, capacity - reserved);
+      const resv = Math.min(u.hours, room);
+      reserved += resv;
+      u.reserved = resv;
     }
 
-    let endBalance;
-    let carriedOut;
-    let earnedHere;
-    if (isCurrent) {
-      // Report the current cycle as-of asOf, not as of cycle end.
-      earnedHere = earnedByDate(asOf);
-      endBalance = Math.max(0, carriedIn + earnedHere - usedPaid);
-      carriedOut = 0; // the current cycle has not closed; nothing carries yet
-    } else {
-      earnedHere = fullEarned;
-      endBalance = Math.max(0, carriedIn + fullEarned - usedPaid);
-      carriedOut = mode === 'none' ? 0
-        : mode === 'cap' ? Math.min(endBalance, capHours)
-        : endBalance; // unlimited
-    }
+    const endBalance = Math.max(0, capacity - reserved);
+    const carriedOut = isCurrent ? 0 // the current cycle has not closed yet
+      : mode === 'none' ? 0
+      : mode === 'cap' ? Math.min(endBalance, capHours)
+      : endBalance; // unlimited
 
     cycles.push({
       index: i,
       start,
       end,
       carriedInHours: carriedIn,
-      fullEarnedHours: isCurrent ? earnedHere : fullEarned,
-      usedPaidHours: usedPaid,
+      fullEarnedHours: earnedHere,
+      reservedHours: reserved,
+      usedPaidHours: reserved, // back-compat alias
       endBalanceHours: endBalance,
       carriedOutHours: carriedOut,
       isCurrent,
@@ -272,13 +302,45 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
     if (!isCurrent) carriedIn = carriedOut;
   }
 
+  const currentEnd = bounds[bounds.length - 1].end;
+
+  // One output record per considered booking (approved + pending) that falls
+  // within the walked cycles, in booking order. Bookings dated beyond the
+  // current cycle draw a future cycle's pool and are out of scope here.
+  const overdraw = considered
+    .filter(u => daysBetween(firstStart, u.date) >= 0 && daysBetween(u.date, currentEnd) > 0)
+    .sort(byBooking)
+    .map(u => {
+      const reservedHours = u.status === 'approved' ? u.reserved : 0;
+      const occurred = daysBetween(u.date, asOf) >= 0; // date <= asOf
+      const covered = u.status === 'approved' && u.hours > 0 && reservedHours >= u.hours - 1e-9;
+      const overflow = u.status === 'approved' ? (u.hours - reservedHours) : 0;
+      return {
+        date: u.date,
+        code: u.code,
+        status: u.status,
+        bookedAt: u.bookedAt,
+        hours: u.hours,
+        reservedHours,
+        covered,
+        occurred,
+        // Payment timing: covered hours pay only once the day has occurred.
+        paidHours: occurred ? reservedHours : 0,
+        // Overflow (approved, over balance) is unpaid once the day occurs.
+        unpaidHours: occurred ? overflow : 0,
+      };
+    });
+
   const current = cycles[cycles.length - 1];
   const earnedHours = current.fullEarnedHours;
   const earnedFractionalDays = hoursPerDay > 0 ? earnedHours / hoursPerDay : 0;
   const earnedWholeDays = Math.floor(earnedFractionalDays + 1e-9);
-  const usedHours = current.usedPaidHours;
+  // Reserved in the current cycle, including future-dated covered days, which
+  // is what reduces the balance available now.
+  const usedHours = current.reservedHours;
   const availableHours = Math.max(0, current.carriedInHours + earnedHours - usedHours);
 
+  const totalReservedHours = overdraw.reduce((s2, o) => s2 + o.reservedHours, 0);
   const totalPaidHours = overdraw.reduce((s2, o) => s2 + o.paidHours, 0);
   const totalUnpaidHours = overdraw.reduce((s2, o) => s2 + o.unpaidHours, 0);
 
@@ -296,6 +358,7 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
     availableHours,
     availableDays: hoursPerDay > 0 ? availableHours / hoursPerDay : 0,
     overdraw,
+    totalReservedHours,
     totalPaidHours,
     totalUnpaidHours,
   };
