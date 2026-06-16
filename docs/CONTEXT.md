@@ -44,6 +44,19 @@ window longer than the pay period under-counts OT, because the Dashboard only
 sees entries inside the current pay period. There is no OT-period option for
 semimonthly-as-pay or for the advanced cycle, by design.
 
+**One-click clock in/out (3e.9).** The Pay Period landing has a Clock card
+(per selected company tab). Clock in stamps the current time as a new OPEN
+segment (clockOut null) on today's entry, creating the entry if needed; clock
+out stamps the current time as that segment's end. Only one open clock is
+allowed across all companies: while one is open the card shows "Clocked in
+since HH:MM" and offers only Clock out. Open segments are excluded from every
+total by construction (`computeSegmentHours` returns 0 for a missing clockOut);
+proven by `scripts/test-clock.mjs`. The entry stays fully editable in the
+normal modal. Midnight edge: a segment stores only "HH:MM" with no date, so a
+clock-out on a later day splits into start-day 23:59 plus a fresh 00:00 -> now
+segment on today (rounding recovers the boundary minute). Persistence rides the
+existing per-company entry write path.
+
 Tooling: a graphify knowledge graph now lives in `graphify-out/`, with CLI
 routing rules in `CLAUDE.md` and a post-commit refresh to keep it current.
 

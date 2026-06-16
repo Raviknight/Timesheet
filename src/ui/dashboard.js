@@ -14,6 +14,10 @@ import { escapeHtml, formatLong, formatHours } from '../core/format.js';
 import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/balances.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
+import { findOpenClock, clockInToday, clockOut } from '../core/clock.js';
+import { ensureEntriesForCompany, saveEntriesForCompany } from '../app.js';
+import { setSyncIdle } from './topbar.js';
+import { toast } from './toast.js';
 
 /**
  * Which company the Pay Period landing is showing. state.ui.ppCompanyId names
@@ -63,6 +67,79 @@ function renderCompanyTabs(state, company) {
   });
 }
 
+/**
+ * One-click clock in/out (3e.9), pinned to the selected company's Pay Period
+ * tab. State is global: while ANY company has an open segment, the control
+ * shows the clocked-in status and offers only Clock out (one open clock at a
+ * time). Otherwise it offers Clock in for the selected company.
+ *
+ * Persistence rides the existing per-company entry write path; the resulting
+ * entry stays fully editable in the normal entry modal. Open segments never
+ * reach pay totals (computeSegmentHours returns 0 for a missing clockOut).
+ */
+function renderClockControl(state, company) {
+  const host = document.getElementById('clockControl');
+  if (!host) return;
+
+  const open = findOpenClock(state.entriesByCompany);
+  const companies = Array.isArray(state.companies) ? state.companies : [];
+
+  if (open) {
+    const oc = companies.find(c => String(c.id ?? '') === String(open.companyId));
+    const ocName = oc ? oc.name : '';
+    const otherCompany = String(open.companyId) !== String(company.id ?? '');
+    const where = otherCompany && ocName ? ` · ${escapeHtml(ocName)}` : '';
+    host.innerHTML = `
+      <h3 class="card-title">Clock</h3>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <span>Clocked in since <strong>${escapeHtml(open.clockIn)}</strong>
+          <span class="muted">${escapeHtml(open.date)}${where}</span></span>
+        <button type="button" id="clockOutBtn" class="btn btn-primary">Clock out</button>
+      </div>`;
+    host.querySelector('#clockOutBtn').onclick = () => doClockOut(state, open);
+    return;
+  }
+
+  host.innerHTML = `
+    <h3 class="card-title">Clock</h3>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <span class="muted">Not clocked in</span>
+      <button type="button" id="clockInBtn" class="btn btn-primary">Clock in</button>
+    </div>`;
+  host.querySelector('#clockInBtn').onclick = () => doClockIn(state, company);
+}
+
+async function doClockIn(state, company) {
+  // Hard guard: never start a second clock while one is open anywhere.
+  if (findOpenClock(state.entriesByCompany)) {
+    toast('Already clocked in. Clock out first.');
+    renderDashboard(state);
+    return;
+  }
+  const cid = String(company.id ?? '');
+  await ensureEntriesForCompany(cid);
+  const map = state.entriesByCompany?.[cid] || state.entries;
+  clockInToday(map, cid);
+  if (!await saveEntriesForCompany(cid)) return;
+  setSyncIdle();
+  toast('Clocked in');
+  renderDashboard(state);
+}
+
+async function doClockOut(state, open) {
+  const cid = String(open.companyId);
+  await ensureEntriesForCompany(cid);
+  const map = state.entriesByCompany?.[cid] || state.entries;
+  const res = clockOut(map, cid);
+  if (!res) { renderDashboard(state); return; }
+  if (!await saveEntriesForCompany(cid)) return;
+  setSyncIdle();
+  toast(res.crossedMidnight
+    ? 'Clocked out. Shift crossed midnight, split across two days; review the entries.'
+    : 'Clocked out');
+  renderDashboard(state);
+}
+
 export function renderDashboard(state, selectedCompany = selectedDashboardCompany(state)) {
   const company = selectedCompany;
   // Detect a company-tab switch (vs a period re-render that keeps the tab) so
@@ -73,6 +150,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   // (which re-render with no explicit company) keep the same tab.
   state.ui.ppCompanyId = company.id ?? null;
   renderCompanyTabs(state, company);
+  renderClockControl(state, company);
 
   const cid = String(company.id ?? '');
   // Time-off types are per-company. Prefer the selected company's set; fall
