@@ -9,9 +9,10 @@
  */
 
 import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
-import { computeHoursPaid, computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays } from '../core/time.js';
+import { computeHoursPaid, computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays, fmtDate } from '../core/time.js';
 import { escapeHtml, formatLong, formatHours } from '../core/format.js';
-import { computePoolBalance, countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/balances.js';
+import { countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/balances.js';
+import { computePoolAccrual } from '../core/accrual.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { findOpenClock, clockInToday, clockOut } from '../core/clock.js';
@@ -285,7 +286,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   }
   renderAnnualBlock(state, entries, timeOffTypes);
 
-  renderBalances(state, timeOffTypes, entries);
+  renderBalances(state, timeOffTypes, entries, company);
 }
 
 /**
@@ -414,10 +415,21 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
   return card;
 }
 
-function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries) {
+function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries, company = null) {
   const container = document.getElementById('balancesList');
   const entries = Object.values(entriesMap);
   let html = '';
+
+  // Engine inputs shared by every pool: today is the as-of date, and the
+  // person's cycle anchor is the company start_date (default to the start of the
+  // current calendar year when unset, so a flat calendar pool reads like today).
+  const asOf = fmtDate(new Date());
+  const curYear = asOf.slice(0, 4);
+  const startDate = (company && company.startDate) || `${curYear}-01-01`;
+  // Effective allotment in days for a type THIS year: the poolByYear override
+  // for the current year if present, else the flat poolDays.
+  const effDays = m =>
+    (m.poolByYear && m.poolByYear[curYear] != null) ? m.poolByYear[curYear] : (m.poolDays || 0);
 
   for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
@@ -447,39 +459,81 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     }
     if (t.sharedPoolWith) continue;
 
-    const b = computePoolBalance(t, timeOffTypes, entries, state.settings, state.companies);
-    const barClass = (b.taken + b.scheduled) / b.poolHours >= 0.9 ? 'danger'
-      : (b.taken + b.scheduled) / b.poolHours >= 0.7 ? 'warn' : '';
+    // Pool owner: gather the shared group, build the engine policy, and feed it
+    // this group's time-off entries as usage (carrying status/bookedAt/createdAt
+    // so the engine can order reservations). Pay calc is untouched; this is
+    // display only.
+    const sharedTypes = timeOffTypes.filter(x => x.sharedPoolWith === t.code);
+    const group = [t, ...sharedTypes];
+    const groupCodes = group.map(x => x.code);
+    const hpd = t.hoursPerDay || 8;
 
-    const sharedLabel = b.sharedTypes.length
-      ? ' + ' + b.sharedTypes.map(x => escapeHtml(x.label)).join(' + ') + ' (shared)'
+    // Current-year allotment for the whole group (Option 2: resolved here, not
+    // in the engine, so accrual.js stays frozen). poolByYear overrides ride
+    // through; with carryover defaulting to none only this cycle is observable.
+    const allotmentDays = group.reduce((s, m) => s + effDays(m), 0);
+
+    const policy = {
+      poolDays: allotmentDays,
+      hoursPerDay: hpd,
+      // Null accrual config defaults so existing flat pools behave like today.
+      grantStyle: t.grantStyle || 'upfront',
+      accrualAnchor: t.accrualAnchor || 'calendar',
+      anchorDate: t.anchorDate || null,
+      waitingDays: t.waitingDays || 0,
+      carryoverMode: t.carryoverMode || 'none',
+      carryoverCap: t.carryoverCap || 0,
+    };
+
+    const usage = entries
+      .filter(e => groupCodes.includes(e.timeOff))
+      .map(e => ({
+        date: e.date,
+        code: e.timeOff,
+        hours: computeHoursPaid(e, state.settings, timeOffTypes, state.companies),
+        status: e.status ?? null,
+        bookedAt: e.bookedAt ?? null,
+        createdAt: e.createdAt ?? null,
+      }));
+
+    const r = computePoolAccrual({ policy, startDate, asOf, usage });
+
+    const poolHours = r.allotmentHours;
+    const reservedNow = r.usedHours;       // reserved this cycle, incl future approved
+    const usedToDate = r.totalPaidHours;   // covered hours whose day has occurred
+    const ratio = poolHours > 0 ? reservedNow / poolHours : 0;
+    const barClass = ratio >= 0.9 ? 'danger' : ratio >= 0.7 ? 'warn' : '';
+    const pct = Math.min(100, Math.max(0, ratio * 100));
+
+    const sharedLabel = sharedTypes.length
+      ? ' + ' + sharedTypes.map(x => escapeHtml(x.label)).join(' + ') + ' (shared)'
       : '';
 
     html += `<div style="margin-bottom:16px">
       <div class="row" style="justify-content:space-between;align-items:baseline">
         <strong>${escapeHtml(t.label)}${sharedLabel}</strong>
         <span style="font-variant-numeric: tabular-nums;font-size:13px">
-          pool: ${t.poolDays || 0} days (${b.poolHours.toFixed(0)} h)
+          pool: ${r.allotmentDays} days (${poolHours.toFixed(0)} h)
         </span>
       </div>
       <div class="progress" style="height:8px;display:flex">
-        <div class="progress-bar ${barClass}" style="width:${b.pctTaken}%"></div>
-        <div style="width:${b.pctScheduled}%;background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 4px,var(--warn-bg) 4px,var(--warn-bg) 8px);height:100%"></div>
+        <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
       </div>
       <div class="row" style="margin-top:8px;gap:10px;font-size:12px">
-        <span><strong>${(b.taken / b.hoursPerDay).toFixed(2)}</strong> days
-          <span class="muted">taken</span>
-          <span class="muted">(${b.taken.toFixed(1)} h)</span></span>
-        <span style="color:var(--warn)"><strong>${(b.scheduled / b.hoursPerDay).toFixed(2)}</strong> days
-          <span style="opacity:0.7">scheduled</span>
-          <span style="opacity:0.7">(${b.scheduled.toFixed(1)} h)</span></span>
-        <span style="margin-left:auto;color:var(--success)"><strong>${(b.remaining / b.hoursPerDay).toFixed(2)}</strong> days
-          <span style="opacity:0.7">remaining</span></span>
+        <span style="color:var(--success)"><strong>${r.availableDays.toFixed(2)}</strong> days
+          <span class="muted">available</span>
+          <span class="muted">(${r.availableHours.toFixed(1)} h)</span></span>
+        <span><strong>${(usedToDate / hpd).toFixed(2)}</strong> days
+          <span class="muted">used</span>
+          <span class="muted">(${usedToDate.toFixed(1)} h)</span></span>
+        <span style="margin-left:auto;color:var(--warn)"><strong>${(reservedNow / hpd).toFixed(2)}</strong> days
+          <span style="opacity:0.7">reserved</span>
+          <span style="opacity:0.7">(${reservedNow.toFixed(1)} h)</span></span>
       </div>`;
 
-    if (b.breakdownTypes.length > 1) {
+    if (group.length > 1) {
       html += '<div class="help" style="margin-top:6px">';
-      for (const bt of b.breakdownTypes) {
+      for (const bt of group) {
         const u = sumHoursForCode(entries, bt.code, 'all', state.settings, timeOffTypes, state.companies);
         html += `<span class="badge" style="margin-right:6px">${escapeHtml(bt.label)}: ${u.toFixed(1)} h</span>`;
       }
