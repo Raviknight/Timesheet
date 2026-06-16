@@ -139,6 +139,8 @@ export function companyRowToAppShape(row) {
     stdSeg1End: row.std_seg1_end ?? null,
     stdSeg2Start: row.std_seg2_start ?? null,
     stdSeg2End: row.std_seg2_end ?? null,
+    // Per-person cycle anchor for PTO accrual. Carried, not yet used.
+    startDate: row.start_date ?? null,
   };
 }
 
@@ -162,6 +164,7 @@ const COMPANY_UPDATE_FIELDS = [
   ['stdSeg1End',          'std_seg1_end'],
   ['stdSeg2Start',        'std_seg2_start'],
   ['stdSeg2End',          'std_seg2_end'],
+  ['startDate',           'start_date'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,
@@ -198,6 +201,13 @@ function timeOffRowToAppShape(t) {
     sharedPoolWith: t.shared_pool_with,
     unpaid: t.unpaid,
     additive: t.additive,
+    // PTO accrual config. Carried, not yet used (defaults null).
+    grantStyle: t.grant_style ?? null,
+    accrualAnchor: t.accrual_anchor ?? null,
+    anchorDate: t.anchor_date ?? null,
+    waitingDays: t.waiting_days ?? null,
+    carryoverMode: t.carryover_mode ?? null,
+    carryoverCap: t.carryover_cap ?? null,
   };
   if (t.pool_by_year && Object.keys(t.pool_by_year).length > 0) {
     obj.poolByYear = t.pool_by_year;
@@ -217,6 +227,13 @@ function timeOffRowFromAppShape(t, companyId) {
     unpaid: !!t.unpaid,
     additive: !!t.additive,
     pool_by_year: t.poolByYear || {},
+    // PTO accrual config. Carried, not yet used (defaults null).
+    grant_style: t.grantStyle ?? null,
+    accrual_anchor: t.accrualAnchor ?? null,
+    anchor_date: t.anchorDate ?? null,
+    waiting_days: t.waitingDays ?? null,
+    carryover_mode: t.carryoverMode ?? null,
+    carryover_cap: t.carryoverCap ?? null,
   };
 }
 
@@ -304,6 +321,12 @@ async function writeTimeOffTypes(value, cacheKey) {
         unpaid: row.unpaid,
         additive: row.additive,
         pool_by_year: row.pool_by_year,
+        grant_style: row.grant_style,
+        accrual_anchor: row.accrual_anchor,
+        anchor_date: row.anchor_date,
+        waiting_days: row.waiting_days,
+        carryover_mode: row.carryover_mode,
+        carryover_cap: row.carryover_cap,
       })
       .eq('company_id', row.company_id)
       .eq('code', row.code);
@@ -530,7 +553,8 @@ export const RemoteStore = {
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
             ' ot_threshold, ot_period, break_minutes,' +
-            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end'
+            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end,' +
+            ' start_date'
           );
         if (error) {
           console.error('[storage] companies read failed:', error);
@@ -949,7 +973,8 @@ export const RemoteStore = {
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
             ' ot_threshold, ot_period, break_minutes,' +
-            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end'
+            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end,' +
+            ' start_date'
           );
         writeCache['ts:companies'] = {
           snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),
