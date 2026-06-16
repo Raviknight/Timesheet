@@ -9,10 +9,10 @@
  */
 
 import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
-import { computeHoursPaid, computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays, fmtDate } from '../core/time.js';
+import { computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays, fmtDate } from '../core/time.js';
 import { escapeHtml, formatLong, formatHours } from '../core/format.js';
 import { countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/balances.js';
-import { computePoolAccrual } from '../core/accrual.js';
+import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../core/coverage.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { findOpenClock, clockInToday, clockOut } from '../core/clock.js';
@@ -177,6 +177,15 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
   // Week breakdown. The legacy module gave us pre-labeled chunks; the new
   // module returns raw {start, end} so we relabel here to keep the UI
   // identical: a single chunk reads "Period", otherwise "Week N".
+  // Pool coverage for THIS company, computed once from the engine and shared by
+  // every pay surface here plus the balances tab, so they cannot drift. A pool
+  // time-off day pays only when the engine marks it covered (see core/coverage).
+  const pools = computeCompanyPools({
+    company, timeOffTypes, entries, settings: state.settings,
+    companies: state.companies, asOf: fmtDate(new Date()),
+  });
+  const coverage = coverageFromPools(pools);
+
   const wkContainer = document.getElementById('weekBreakdown');
   wkContainer.innerHTML = '';
   const weekStartDow = company.weekStartDow ?? 1;
@@ -185,7 +194,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     ? [{ ...rawWeeks[0], label: 'Period' }]
     : rawWeeks.map((w, i) => ({ ...w, label: 'Week ' + (i + 1) }));
   for (const w of weeks) {
-    wkContainer.appendChild(renderWeekCard(w, state, company, timeOffTypes, entries));
+    wkContainer.appendChild(renderWeekCard(w, state, company, timeOffTypes, entries, coverage));
   }
 
   // Totals. Mirrors the per-week card buckets so they reconcile:
@@ -204,7 +213,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     if (e.timeOff === 'HOLIDAY') {
       ppHoliday += computeHoursBenefit(e, state.settings, timeOffTypes, state.companies);
     } else if (e.timeOff) {
-      ppTimeOff += computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
+      ppTimeOff += paidHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
     }
   }
 
@@ -281,12 +290,12 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     // Year change recomputes the block only, leaving the rest of the dashboard.
     yearSel.onchange = () => {
       state.ui.ppActualYear = +yearSel.value;
-      renderAnnualBlock(state, entries, timeOffTypes);
+      renderAnnualBlock(state, entries, timeOffTypes, coverage);
     };
   }
-  renderAnnualBlock(state, entries, timeOffTypes);
+  renderAnnualBlock(state, entries, timeOffTypes, coverage);
 
-  renderBalances(state, timeOffTypes, entries, company);
+  renderBalances(state, timeOffTypes, entries, pools);
 }
 
 /**
@@ -298,7 +307,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
  *   - Total paid:     ROUNDED worked hours (pay basis) + the paid time off
  * Read-only. Touches only the block, not the dashboard.
  */
-function renderAnnualBlock(state, entries, timeOffTypes) {
+function renderAnnualBlock(state, entries, timeOffTypes, coverage) {
   const now = new Date();
   const curYear = now.getFullYear();
   const year = +state.ui.ppActualYear || curYear;
@@ -321,7 +330,7 @@ function renderAnnualBlock(state, entries, timeOffTypes) {
     } else if (e.timeOff) {
       const t = Array.isArray(timeOffTypes) ? timeOffTypes.find(x => x.code === e.timeOff) : null;
       if (!(t && t.unpaid)) {
-        paidTimeOff += computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
+        paidTimeOff += paidHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
       }
     }
   }
@@ -333,7 +342,7 @@ function renderAnnualBlock(state, entries, timeOffTypes) {
   if (labelEl) labelEl.textContent = isCurrent ? 'Actual hours (YTD)' : `Actual hours ${year}`;
 }
 
-function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
+function renderWeekCard(week, state, company, timeOffTypes, entriesMap, coverage) {
   const card = document.createElement('div');
   card.className = 'card week-card';
 
@@ -360,7 +369,7 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
 
   for (const dd of days) {
     const workedH = dd.empty ? 0 : computeHoursWorked(dd, state.settings, state.companies);
-    const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, timeOffTypes, state.companies);
+    const paidH = dd.empty ? 0 : paidHoursWithCoverage(dd, state.settings, timeOffTypes, state.companies, coverage);
     if (dd.timeOff === 'HOLIDAY') {
       worked += workedH;
       holiday += computeHoursBenefit(dd, state.settings, timeOffTypes, state.companies);
@@ -415,26 +424,15 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
   return card;
 }
 
-function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries, company = null) {
+function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries, pools = []) {
   const container = document.getElementById('balancesList');
   const entries = Object.values(entriesMap);
   let html = '';
 
-  // Engine inputs shared by every pool: today is the as-of date, and the
-  // person's cycle anchor is the company start_date (default to the start of the
-  // current calendar year when unset, so a flat calendar pool reads like today).
-  const asOf = fmtDate(new Date());
-  const curYear = asOf.slice(0, 4);
-  // A probation/waiting period only means something against a real hire date.
-  // With no hire date recorded we treat the person as past probation: fall back
-  // to Jan 1 for the cycle (as today) but pass waiting_days as 0 so the engine
-  // applies no probation gate.
-  const hasHireDate = !!(company && company.startDate);
-  const startDate = (company && company.startDate) || `${curYear}-01-01`;
-  // Allotment in days for a type: the flat poolDays. The per-year override
-  // (poolByYear) is retired (4b); the seed UPDATE folded each type's current-
-  // year override into pool_days, so this reads the same size as before.
-  const effDays = m => (m.poolDays || 0);
+  // Pool results are pre-computed once per company (core/coverage), so the
+  // balances rows and the pay calc read identical coverage.
+  const poolByCode = {};
+  for (const p of pools) poolByCode[p.owner.code] = p;
 
   for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
@@ -464,45 +462,14 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     }
     if (t.sharedPoolWith) continue;
 
-    // Pool owner: gather the shared group, build the engine policy, and feed it
-    // this group's time-off entries as usage (carrying status/bookedAt/createdAt
-    // so the engine can order reservations). Pay calc is untouched; this is
-    // display only.
-    const sharedTypes = timeOffTypes.filter(x => x.sharedPoolWith === t.code);
-    const group = [t, ...sharedTypes];
-    const groupCodes = group.map(x => x.code);
+    // Pool owner: read the pre-computed engine result (core/coverage) so the
+    // displayed balance matches exactly what the pay calc now pays.
+    const p = poolByCode[t.code];
+    if (!p) continue;
+    const r = p.result;
+    const sharedTypes = p.sharedTypes;
+    const group = p.group;
     const hpd = t.hoursPerDay || 8;
-
-    // Current-year allotment for the whole group (Option 2: resolved here, not
-    // in the engine, so accrual.js stays frozen). poolByYear overrides ride
-    // through; with carryover defaulting to none only this cycle is observable.
-    const allotmentDays = group.reduce((s, m) => s + effDays(m), 0);
-
-    const policy = {
-      poolDays: allotmentDays,
-      hoursPerDay: hpd,
-      // Null accrual config defaults so existing flat pools behave like today.
-      grantStyle: t.grantStyle || 'upfront',
-      accrualAnchor: t.accrualAnchor || 'calendar',
-      anchorDate: t.anchorDate || null,
-      // No hire date -> no probation gate (see hasHireDate above).
-      waitingDays: hasHireDate ? (t.waitingDays || 0) : 0,
-      carryoverMode: t.carryoverMode || 'none',
-      carryoverCap: t.carryoverCap || 0,
-    };
-
-    const usage = entries
-      .filter(e => groupCodes.includes(e.timeOff))
-      .map(e => ({
-        date: e.date,
-        code: e.timeOff,
-        hours: computeHoursPaid(e, state.settings, timeOffTypes, state.companies),
-        status: e.status ?? null,
-        bookedAt: e.bookedAt ?? null,
-        createdAt: e.createdAt ?? null,
-      }));
-
-    const r = computePoolAccrual({ policy, startDate, asOf, usage });
 
     const poolHours = r.allotmentHours;
     const reservedNow = r.usedHours;       // reserved this cycle, incl future approved
@@ -536,6 +503,16 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
           <span style="opacity:0.7">reserved</span>
           <span style="opacity:0.7">(${reservedNow.toFixed(1)} h)</span></span>
       </div>`;
+
+    // Paid/unpaid breakdown from the engine's coverage, consistent with what the
+    // pay calc now pays: covered days that have occurred pay; over-pool days are
+    // unpaid. Shown only when something is over pool (within budget reads as
+    // before).
+    if (r.totalUnpaidHours > 0) {
+      html += `<div class="help" style="margin-top:4px;color:var(--danger)">
+        ${r.totalPaidHours.toFixed(1)} h paid · ${r.totalUnpaidHours.toFixed(1)} h over pool (unpaid)
+      </div>`;
+    }
 
     if (group.length > 1) {
       html += '<div class="help" style="margin-top:6px">';
