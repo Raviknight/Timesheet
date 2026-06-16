@@ -81,11 +81,20 @@ company's window and computes regular versus OT on worked hours.
 
 Four types, two behaviors.
 
-- **Holiday is additive.** Its hours are a bonus added on top of any worked
-  hours that day. They land in the Holiday bucket and never count toward OT.
+- **Holiday is a flat per-day benefit.** Its value is the type's `hoursPerDay`,
+  identical whether or not the day is worked. Worked time on a holiday is worked
+  hours on top of the benefit, never folded into Holiday. So a clocked 8h
+  holiday reports 8 hours of Holiday plus 8 worked hours, not 16 of Holiday. The
+  benefit lands in the Holiday bucket and never counts toward OT. The single
+  source for this figure is `computeHoursBenefit` (paid minus worked) in
+  `src/core/time.js`; the dashboard totals, week cards, annual block, and the
+  balances tab all read it, so the views cannot drift.
 - **PTO, Sick, Unpaid are non-additive.** When the day has no segments, the
   type's hours are the day's paid hours. They land in the Time off bucket and
   never count toward OT.
+- **Unpaid days carry no hours figure.** An unpaid day is neither worked nor
+  paid, so the balances tab shows only the day count for an unpaid type, no
+  hours. This is a display rule; it does not change how unpaid is stored.
 
 Code: time-off codes are defined in `src/data/schema.js`
 (`DEFAULT_TIME_OFF_TYPES`).
@@ -99,7 +108,41 @@ multiplied by 8 for hours). The app generalizes this to multiple pools with
 
 Code: `src/core/balances.js`.
 
-## Pay-period anchoring
+## PTO accrual model (in build)
+
+This is the accrual model being built to replace the year-override pattern. It
+is not yet wired into the UI; this section is the settled business logic the
+implementation targets.
+
+A pool's available balance for a person is derived from these inputs:
+
+- **Base allotment.** Days per year for the type. This is the plain value the
+  rule starts from. (Tenure-based growth is deferred to the company phase; a
+  pure tenure function can feed this value later without changing the rule.)
+- **Grant style.** Either granted up front at the start of the cycle, or accrued
+  linearly across the cycle (a per-period or per-day fraction of the allotment).
+- **Cycle anchor.** When the cycle starts and resets, off a per-person start
+  date. One of: calendar (Jan 1), hire anniversary (the start date's month and
+  day each year), or a fixed fiscal date.
+- **Mid-cycle proration.** The first partial cycle is prorated. A person who
+  starts partway through a cycle earns a fraction of the allotment for that
+  first cycle, proportional to the remaining span.
+- **Waiting / probation period.** An optional eligibility delay before any time
+  off can be taken or accrued. Until it elapses, no balance is available.
+- **Carry-forward.** Unused balance crossing a cycle boundary is one of: none
+  (reset to the new allotment), a cap (carry up to a maximum), or unlimited.
+  Carry-forward stacks on top of the new cycle's allotment.
+- **Shared pools.** Types can share one pool via `sharedPoolWith`; usage of any
+  sharing type draws the same balance, as today.
+
+**Overdraw rule.** Pool time-off is paid from the balance in date order. Once
+the pool is exhausted, further days of that type are unpaid, but they stay
+categorized under that type. Exhaustion changes whether a day is paid, never
+what type it is.
+
+**Year-override is retired.** Instead of storing a per-year override and
+reconstructing past years, the model reads the current year's value as the
+opening allotment and runs the rule forward. Past years are not reconstructed.
 
 Pay periods are anchored to a continuous week counter, not to calendar
 year-starts.

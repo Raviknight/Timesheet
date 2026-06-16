@@ -3,7 +3,7 @@
 Living document. Updated at the end of every working session so the next
 Claude (or future-you) can pick up without re-reading the whole chat history.
 
-## Current state (as of June 6, 2026)
+## Current state (as of June 16, 2026)
 
 Modular ES-module project that bundles to a single distributable file for
 production. Core features:
@@ -160,6 +160,42 @@ close any open modals before calling showAuthView. One-line
 addition once we know where modal close handlers live.
 
 ## Session log
+
+### June 16, 2026: One-click clock, two balances fixes, PTO accrual kickoff
+
+**One-click clock in/out per company (3e.9).** The Pay Period landing gained a
+Clock card per selected company tab. Clock in stamps now as a new OPEN segment
+(clockOut null) on today's entry, creating the entry if needed; clock out
+stamps that segment's end. Only one open clock is allowed across all companies:
+while one is open the card shows "Clocked in since HH:MM" and offers only Clock
+out. Open segments are excluded from every total by construction
+(`computeSegmentHours` returns 0 for a missing clockOut), proven by
+`scripts/test-clock.mjs`. Midnight edge: a clock-out on a later day splits into
+the start day's 23:59 plus a fresh 00:00 to now segment on today.
+
+**Balances fix 1: Holiday shows the flat per-day benefit.** The Time-off
+balances tab summed paid hours for Holiday, which for an additive type is
+worked plus the flat benefit, so a worked holiday folded its worked hours into
+Holiday (a worked 8h holiday read 16, not 8). Extracted the benefit rule into
+one canonical `computeHoursBenefit` (paid minus worked) in `src/core/time.js`,
+and routed the dashboard period total, week cards, annual block, and a new
+`sumBenefitForCode` in `src/core/balances.js` through it. The dashboard and the
+balances tab now share one computation and cannot drift. Worked-on-holiday
+flows to worked; Holiday reports the flat benefit, matching the dashboard.
+
+**Balances fix 2: Unpaid shows no hours.** An unpaid day is neither worked nor
+paid, but the balances tab printed a paid-style 8h figure for it. The non-pool
+branch now suppresses the hours figure for any type flagged `unpaid` and shows
+the day count only. Display-only; storage and compute paths are unchanged.
+
+**PTO accrual: started.** Began the accrual model that replaces the
+year-override pattern. The settled business rules are written up in
+`docs/LOGIC.md` under "PTO accrual model (in build)": base allotment, grant
+style (up front or linear), cycle anchor off a per-person start date,
+mid-cycle proration, optional waiting period, carry-forward, shared pools, and
+the overdraw rule. Year-override is being retired by reading the current year's
+value as the opening allotment and running the rule forward, with no
+reconstruction of past years. In build, not yet wired into the UI.
 
 ### June 6, 2026: Per-company pay period + overtime (3e.4 / 3e.4b / 3e.4c) and cleanup
 

@@ -3,91 +3,78 @@
 Where this is going. Not a commitment, just a sketch so we don't paint
 ourselves into corners.
 
-## Phase 1 — Personal (current)
+## Direction
 
-Single user, browser-only, synced via Anthropic `window.storage` or
-`localStorage`.
+The app becomes a multi-tenant employer/employee platform. Record-keeping
+first (the timesheet, time off, and balances that exist today, made
+multi-tenant), with paycheck and HR features later. The personal single-user
+app is the seed; the company model grows around it without throwing it away.
 
-✓ Multi-segment daily entries
-✓ Configurable pay period systems
-✓ PTO/Sick/Holiday/Unpaid tracking with shared pools
-✓ Pay history + YTD totals
-✓ Export to JSON and CSV
-✓ Role scaffolding (capability checks in place, not enforced yet)
+## Phase 0 (settled): the company model
 
-## Phase 2 — Sell to individuals
+The shape everything else builds on. Decided, not yet fully built.
 
-Same code, deployed to GitHub Pages (or buyer's own GitHub Pages fork).
-Each buyer runs a separate instance on their own browser storage.
+**Two views over one membership model.** The UI splits into an Employee view
+("My Time") and a Company view ("Manage"), both reading the same shared
+membership model:
 
-**Pricing model:** one-time purchase or modest subscription. Open to either.
+- A company has members.
+- A person can be a member of several companies.
+- An owner-managed employee is a membership with no linked user. The owner
+  records that person's time without the person having a login.
+- A claim flow links a real login to an existing membership later, so an
+  owner-managed employee can become a self-serve user without losing history.
 
-**To do for Phase 2:**
+**Config split.** Settings divide cleanly into two scopes:
 
-- [ ] Settings → "About this app" page with version and license info
-- [ ] First-run welcome screen (instead of immediately seeding Ravi's data)
-- [ ] Optional: encrypted JSON export with a passphrase
-- [ ] Optional: a simple landing page on the same Pages site
+- **Company-wide:** pay frequency, overtime rules, holiday calendar, and the
+  time-off type definitions.
+- **Per-employee:** standard day, break, PTO balances and accrual, and wage
+  (wage comes later).
 
-## Phase 3 — Small employer multi-tenant
+This split is what lets one company set the rules once while each employee
+carries their own day shape and balances.
 
-A company admin creates the workspace, adds employees, optionally adds
-supervisors. Employees see only their own time; supervisors see their team;
-admin sees everyone.
+## Phase 1: owner-managed employees
 
-**Required infra:**
+The owner creates employee memberships with no linked user and records their
+time, time off, and balances. Single operator, many tracked people. No auth
+for the employees yet.
 
-- Backend (API + database)
-- Authentication (email + password, or magic link)
-- Row-level security on every query
+## Phase 2: roles and access (RLS)
 
-**Stack candidates:**
+Authentication plus row-level security on every query. Roles: owner/admin,
+supervisor, employee. Employees see only their own time; supervisors see their
+team; admin sees everyone. Capability checks from `src/auth/roles.js` get
+enforced in the UI.
 
-1. **Supabase** — Postgres + auth + realtime + RLS in one platform. Fastest
-   path. Free tier covers single-digit companies. ~$25/month at scale.
-2. **Cloudflare Pages + Workers + D1** — same vendor as our frontend hosting.
-   Cheaper at scale, more code to write upfront.
-3. **Self-hosted Postgres + Node API on a VPS** — most control, most work.
+## Phase 3: invite and claim
 
-**To do for Phase 3:**
+The claim flow from Phase 0: an owner invites a person, the person signs up,
+and their login links to the existing owner-managed membership. History is
+preserved across the claim.
 
-- [ ] Pick stack (see above)
-- [ ] Add login UI; wire profile.userId to authenticated identity
-- [ ] Enforce capabilities from `src/auth/roles.js` in the UI
-- [ ] Backend schema with company_id on every table
-- [ ] Migration path from Phase 1 (export JSON → import to company workspace)
-- [ ] Supervisor view: team list, pending approvals
-- [ ] Admin view: user management, role assignments, company settings
+## Phase 4: employee self-tracking and parity
 
-## Phase 4 — Hardware punch integration
+Claimed employees track their own time with the same capabilities the personal
+app has today (clock in/out, multi-segment days, time off, balances). The
+Employee view reaches parity with the standalone personal experience.
+
+## Phase 5: punch-system integration
 
 Fingerprint, RFID badge, or PIN punch devices push clock events to the
-backend.
+backend. Needs a public punch endpoint, device registration and tokens,
+reconciliation of pushed events against manual edits, and an audit log of
+every clock event including edits.
 
-**Required additions:**
+## Deferred
 
-- Public API endpoint for punch events
-- Device registration + auth tokens
-- Reconcile pushed events with manual edits (who wins on conflict?)
-- Audit log of every clock event, including edits
-
-**To do for Phase 4:**
-
-- [ ] Define punch event schema (device_id, user_id or badge_id, timestamp,
-      event_type)
-- [ ] Build hardware integration spec (REST or MQTT)
-- [ ] Pick a reference device for testing (a cheap RFID reader + ESP32, or
-      a tablet PWA running in kiosk mode)
-
-## Phase 5 — Reports & compliance
-
-When companies use this for payroll, they'll need:
-
-- Period-end timesheet export per employee
-- Approval workflow (supervisor signs off, admin closes the period)
-- Audit trail of who edited what
-- Compliance with local labor laws (e.g. overtime calc, meal break
-  enforcement)
+- **Tenure-based PTO growth** is deferred to the company phase. The accrual
+  model (see `docs/LOGIC.md`) leaves the base allotment as a plain value, so a
+  pure tenure function can feed it later without changing the accrual rule.
+- **Paycheck and HR features** beyond record-keeping: approval workflows,
+  period-end exports per employee, and compliance reporting come after the
+  multi-tenant record-keeping core is solid.
 
 ## Things we explicitly aren't doing
 
