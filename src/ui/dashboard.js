@@ -9,9 +9,9 @@
  */
 
 import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
-import { computeHoursPaid, computeHoursWorked, entrySegments, dayShort, addDays } from '../core/time.js';
+import { computeHoursPaid, computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays } from '../core/time.js';
 import { escapeHtml, formatLong, formatHours } from '../core/format.js';
-import { computePoolBalance, countDaysForCode, sumHoursForCode } from '../core/balances.js';
+import { computePoolBalance, countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/balances.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { findOpenClock, clockInToday, clockOut } from '../core/clock.js';
@@ -201,9 +201,7 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
 
   for (const e of inPP) {
     if (e.timeOff === 'HOLIDAY') {
-      const workedH = computeHoursWorked(e, state.settings, state.companies);
-      const paidH = computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
-      ppHoliday += paidH - workedH;
+      ppHoliday += computeHoursBenefit(e, state.settings, timeOffTypes, state.companies);
     } else if (e.timeOff) {
       ppTimeOff += computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
     }
@@ -318,9 +316,7 @@ function renderAnnualBlock(state, entries, timeOffTypes) {
     actual += computeHoursWorked(e, state.settings, state.companies, false);
     roundedWorked += computeHoursWorked(e, state.settings, state.companies);
     if (e.timeOff === 'HOLIDAY') {
-      const workedH = computeHoursWorked(e, state.settings, state.companies);
-      const paidH = computeHoursPaid(e, state.settings, timeOffTypes, state.companies);
-      paidTimeOff += paidH - workedH;
+      paidTimeOff += computeHoursBenefit(e, state.settings, timeOffTypes, state.companies);
     } else if (e.timeOff) {
       const t = Array.isArray(timeOffTypes) ? timeOffTypes.find(x => x.code === e.timeOff) : null;
       if (!(t && t.unpaid)) {
@@ -366,7 +362,7 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap) {
     const paidH = dd.empty ? 0 : computeHoursPaid(dd, state.settings, timeOffTypes, state.companies);
     if (dd.timeOff === 'HOLIDAY') {
       worked += workedH;
-      holiday += paidH - workedH;
+      holiday += computeHoursBenefit(dd, state.settings, timeOffTypes, state.companies);
     } else if (dd.timeOff) {
       timeOff += paidH;
     } else {
@@ -425,7 +421,12 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
 
   for (const t of timeOffTypes) {
     if (!t.countsAgainstPool) {
-      const usedHours = sumHoursForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies);
+      // Holiday (additive) reports the flat per-day benefit, worked-on-holiday
+      // flowing to worked, not here. Reuse the dashboard's benefit sum so the
+      // two views cannot drift. Other non-pool types show total paid hours.
+      const usedHours = t.additive
+        ? sumBenefitForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies)
+        : sumHoursForCode(entries, t.code, 'all', state.settings, timeOffTypes, state.companies);
       const usedDays = countDaysForCode(entries, t.code, 'all');
       html += `<div style="margin-bottom:12px">
         <div class="row" style="justify-content:space-between">

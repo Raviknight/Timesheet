@@ -18,7 +18,21 @@
  *   - remaining : pool - taken - scheduled, clamped >= 0
  */
 
-import { computeHours, fmtDate } from './time.js';
+import { computeHours, computeHoursBenefit, fmtDate } from './time.js';
+
+/**
+ * The current-year entries of one time-off code, narrowed by time window.
+ * Shared by every per-code aggregate so they filter identically.
+ */
+function entriesForCode(entries, code, when) {
+  const today = fmtDate(new Date());
+  const yr = today.slice(0, 4);
+  return entries
+    .filter(e => e.date.startsWith(yr) && e.timeOff === code)
+    .filter(e => when === 'all'
+      || (when === 'past' && e.date <= today)
+      || (when === 'future' && e.date > today));
+}
 
 /**
  * @param {object[]} entries  array of entry objects
@@ -32,25 +46,23 @@ import { computeHours, fmtDate } from './time.js';
  * @returns {number} sum of hours
  */
 export function sumHoursForCode(entries, code, when, settings, timeOffTypes, companies) {
-  const today = fmtDate(new Date());
-  const yr = today.slice(0, 4);
-  return entries
-    .filter(e => e.date.startsWith(yr) && e.timeOff === code)
-    .filter(e => when === 'all'
-      || (when === 'past' && e.date <= today)
-      || (when === 'future' && e.date > today))
+  return entriesForCode(entries, code, when)
     .reduce((s, e) => s + computeHours(e, settings, timeOffTypes, companies), 0);
 }
 
+/**
+ * Like sumHoursForCode, but sums the time-off BENEFIT (paid minus worked)
+ * rather than total paid hours. For a flat per-day benefit such as Holiday
+ * this keeps worked-on-holiday hours in the worked bucket, so the figure
+ * matches the dashboard exactly. See computeHoursBenefit.
+ */
+export function sumBenefitForCode(entries, code, when, settings, timeOffTypes, companies) {
+  return entriesForCode(entries, code, when)
+    .reduce((s, e) => s + computeHoursBenefit(e, settings, timeOffTypes, companies), 0);
+}
+
 export function countDaysForCode(entries, code, when) {
-  const today = fmtDate(new Date());
-  const yr = today.slice(0, 4);
-  return entries
-    .filter(e => e.date.startsWith(yr) && e.timeOff === code)
-    .filter(e => when === 'all'
-      || (when === 'past' && e.date <= today)
-      || (when === 'future' && e.date > today))
-    .length;
+  return entriesForCode(entries, code, when).length;
 }
 
 /**

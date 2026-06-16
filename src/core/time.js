@@ -193,6 +193,26 @@ export function computeHoursPaid(entry, settings, timeOffTypes, companies) {
 }
 
 /**
+ * Time-off benefit hours for a day, EXCLUDING any work done that day.
+ *
+ * Defined as paid minus worked, so it isolates the part of the day the user
+ * is paid for without clocking in:
+ *   - HOLIDAY (additive): always the flat per-day benefit. Working on a
+ *     holiday flows to worked, never inflating the benefit. A worked holiday
+ *     and an unworked holiday both report the same flat figure.
+ *   - PTO/SICK (non-additive, unworked): the type's hoursPerDay.
+ *   - Any day with segments covering the full paid amount: 0.
+ *
+ * This is the single source of truth for the "Holiday hours" figure shared by
+ * the dashboard totals, the week cards, the annual block, and the balances
+ * tab, so those views cannot drift apart.
+ */
+export function computeHoursBenefit(entry, settings, timeOffTypes, companies) {
+  return computeHoursPaid(entry, settings, timeOffTypes, companies)
+    - computeHoursWorked(entry, settings, companies);
+}
+
+/**
  * Back-compat alias for computeHoursPaid. New code should prefer the
  * explicit Worked / Paid variants so the intent is obvious at the call
  * site.
