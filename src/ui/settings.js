@@ -17,77 +17,19 @@ import {
 } from '../data/schema.js';
 import { getPayPeriodFor, periodLengthDays } from '../core/payPeriod.js';
 import { escapeHtml, formatLong } from '../core/format.js';
-import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, timeToMinutes, resolveBreakMinutes } from '../core/time.js';
+import { computeHours, computeSegmentHours, entrySegments, dayShort, fmtDate, resolveBreakMinutes } from '../core/time.js';
 import { setSyncIdle, renderTopBar } from './topbar.js';
 import { toast } from './toast.js';
-import { resolveStandardDay, computeStandardDayHours, HARDCODED_FALLBACK } from '../data/standardDay.js';
+import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
 import { createCompany, deleteCompany } from '../data/bootstrap.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { supabase } from '../data/supabase.js';
 
 export function renderSettings(state) {
   renderPerCompanyPayPeriod(state);
-  const s = state.settings;
-  // VESTIGIAL: the user-level Hours card (break + Standard Day) no longer feeds
-  // the pay math; per-company break/Standard Day fully replaced it (3e.7). It
-  // is kept only as the one-time seed source for existing companies and is
-  // flagged for removal in a later chunk. Read standard_day directly here (the
-  // resolver no longer inherits it) so the card still shows the user's value.
-  setVal('setHoursBreak', s.breakMinutes);
   setVal('setName', state.profile.name || '');
   setVal('setRole', state.profile.role || 'owner');
-  const sd = s.standard_day || HARDCODED_FALLBACK;
-  setVal('setSdSeg1Start', sd.seg1Start || '');
-  setVal('setSdSeg1End', sd.seg1End || '');
-  setVal('setSdSeg2Start', sd.seg2Start || '');
-  setVal('setSdSeg2End', sd.seg2End || '');
-  refreshStandardDayUI();
   renderCompaniesList(state);
-}
-
-function readStandardDayForm() {
-  return {
-    seg1Start: document.getElementById('setSdSeg1Start').value || null,
-    seg1End: document.getElementById('setSdSeg1End').value || null,
-    seg2Start: document.getElementById('setSdSeg2Start').value || null,
-    seg2End: document.getElementById('setSdSeg2End').value || null,
-  };
-}
-
-function validateStandardDay(sd) {
-  const segPair = (s, e, name) => {
-    if (!!s !== !!e) return `${name} needs both start and end.`;
-    if (s && e && timeToMinutes(e) <= timeToMinutes(s)) {
-      return `${name} end must be after start.`;
-    }
-    return null;
-  };
-  const e1 = segPair(sd.seg1Start, sd.seg1End, 'Segment 1');
-  if (e1) return e1;
-  const e2 = segPair(sd.seg2Start, sd.seg2End, 'Segment 2');
-  if (e2) return e2;
-  return null;
-}
-
-function refreshStandardDayUI() {
-  const sd = readStandardDayForm();
-  const err = validateStandardDay(sd);
-  const totalEl = document.getElementById('setSdTotal');
-  const errEl = document.getElementById('setSdError');
-  const btn = document.getElementById('btnSaveStandardDay');
-  // Source break minutes from the Hours card input live, so edits there
-  // reflect in the Standard Day total immediately.
-  const breakMin = parseFloat(document.getElementById('setHoursBreak')?.value);
-  totalEl.textContent = err ? '—' : computeStandardDayHours(sd, breakMin).toFixed(2);
-  if (err) {
-    errEl.textContent = err;
-    errEl.style.display = '';
-    btn.disabled = true;
-  } else {
-    errEl.textContent = '';
-    errEl.style.display = 'none';
-    btn.disabled = false;
-  }
 }
 
 function setVal(id, v) {
@@ -757,13 +699,6 @@ function renderCompaniesList(state) {
 export function wireSettings(state, { saveAll }) {
   // Save handlers
 
-  document.getElementById('btnSaveHours').onclick = async () => {
-    state.settings.breakMinutes = parseFloat(document.getElementById('setHoursBreak').value) || 0;
-    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
-    setSyncIdle();
-    toast('Hours settings saved');
-  };
-
   document.getElementById('btnSaveProfile').onclick = async () => {
     state.profile.name = document.getElementById('setName').value.trim() || 'You';
     state.profile.role = document.getElementById('setRole').value;
@@ -771,23 +706,6 @@ export function wireSettings(state, { saveAll }) {
     setSyncIdle();
     renderTopBar(state.profile);
     toast('Profile saved');
-  };
-
-  // setHoursBreak lives on the Hours card but feeds Standard Day's live
-  // total, so re-render that card when it changes too.
-  ['setSdSeg1Start', 'setSdSeg1End', 'setSdSeg2Start', 'setSdSeg2End', 'setHoursBreak']
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', refreshStandardDayUI);
-    });
-
-  document.getElementById('btnSaveStandardDay').onclick = async () => {
-    const sd = readStandardDayForm();
-    if (validateStandardDay(sd)) return;
-    state.settings.standard_day = sd;
-    if (!await saveKey(SK.settings, state.settings, 'Settings')) return;
-    setSyncIdle();
-    toast('Standard day saved');
   };
 
   document.getElementById('btnAddCompany').onclick = async () => {
