@@ -70,7 +70,8 @@ export function initEntryModal(state, onAfterSave) {
   });
 
   // Time-off selection: any code clears segments (implied hours come from
-  // the type via computeHours). Clearing the code restores DOW defaults.
+  // the type via computeHours). Clearing the code restores DOW defaults. The
+  // status toggle is only meaningful for a time-off booking, so show/hide it.
   document.getElementById('eTimeOff').addEventListener('change', (ev) => {
     if (ev.target.value) {
       modalSegments = [];
@@ -78,6 +79,7 @@ export function initEntryModal(state, onAfterSave) {
       const date = document.getElementById('eDate').value || fmtDate(new Date());
       modalSegments = defaultSegmentsForDate(date);
     }
+    updateStatusVisibility();
     renderSegments();
     updateComputedHours();
   });
@@ -148,11 +150,22 @@ function loadFormForDate(date) {
     modalSegments = segs.length ? JSON.parse(JSON.stringify(segs)) : [];
     document.getElementById('eTimeOff').value = existing.timeOff || '';
     document.getElementById('eNotes').value = existing.notes || '';
+    // Existing booking status, defaulting approved for legacy time-off rows.
+    document.getElementById('eStatus').value = existing.status || 'approved';
   } else {
     modalSegments = defaultSegmentsForDate(date);
     document.getElementById('eTimeOff').value = '';
     document.getElementById('eNotes').value = '';
+    document.getElementById('eStatus').value = 'approved';
   }
+  updateStatusVisibility();
+}
+
+/** Show the status toggle only when a time-off type is selected. */
+function updateStatusVisibility() {
+  const hasTimeOff = !!document.getElementById('eTimeOff').value;
+  const row = document.getElementById('eStatusRow');
+  if (row) row.style.display = hasTimeOff ? '' : 'none';
 }
 
 export function openEntryModal(date, state, context = {}) {
@@ -409,6 +422,21 @@ async function saveEntry() {
   const sourceCid = String(editingCompanyId ?? activeId);
   const targetCid = String(pickedCid ?? sourceCid);
 
+  // Booking metadata for time-off entries. Inert this chunk: no calc reads
+  // status or bookedAt yet, so no pay/balance number moves.
+  //   status:   the approved/pending toggle; null for worked entries.
+  //   bookedAt: stamped the first time this becomes a time-off booking (the
+  //             booking moment), and preserved on later edits. A worked day
+  //             converted to time-off stamps at the conversion; worked entries
+  //             stay null.
+  let status = null;
+  let bookedAt = null;
+  if (timeOff) {
+    status = document.getElementById('eStatus')?.value || 'approved';
+    const prior = editingEntries()[editingDate] || editingEntries()[date] || null;
+    bookedAt = (prior && prior.bookedAt) ? prior.bookedAt : new Date().toISOString();
+  }
+
   const entry = {
     date,
     segments: cleanSegs,
@@ -417,6 +445,8 @@ async function saveEntry() {
     // Explicit company from the picker. Authoritative on the write path; the
     // storage layer only fills the active company when this is absent.
     companyId: pickedCid,
+    status,
+    bookedAt,
   };
 
   // Make sure the target company's set is in memory before we mutate it.
