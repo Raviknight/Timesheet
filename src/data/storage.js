@@ -44,6 +44,49 @@ export function getSignedInUserId() {
   return null;
 }
 
+// Cache of `${userId}|${companyId}` -> member_id for the page session. A user's
+// membership in a company does not change mid-session, so a plain Map is safe
+// and keeps the per-row lookups in the write loops to a single query each.
+const memberIdCache = new Map();
+
+/** Short, uuid-safe prefix for logging (never log a raw id). */
+function idPrefix(id) {
+  return id ? String(id).slice(0, 8) : 'null';
+}
+
+/**
+ * Resolve the company_members.id for the signed-in user in `companyId`. Returns
+ * null when signed out, when companyId is missing, or when no membership row
+ * exists. Cached for the page session. Used by the entries/pays write paths to
+ * stamp member_id directly; the DB autofill trigger remains as a safety net.
+ */
+export async function getSignedInMemberId(companyId) {
+  if (!companyId) return null;
+  const userId = getSignedInUserId();
+  if (!userId) return null;
+
+  const cacheKey = `${userId}|${companyId}`;
+  if (memberIdCache.has(cacheKey)) return memberIdCache.get(cacheKey);
+
+  const { data, error } = await supabase
+    .from('company_members')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('company_id', companyId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.warn(
+      `[storage] member_id lookup failed (user ${idPrefix(userId)}, company ${idPrefix(companyId)})`,
+      error || 'no membership row');
+    return null;
+  }
+
+  memberIdCache.set(cacheKey, data.id);
+  return data.id;
+}
+
 export function getStorageMode() {
   return getSignedInUserId() ? 'remote' : 'local';
 }
@@ -460,17 +503,24 @@ async function writeEntries(value, cacheKey, userId) {
   // company is authoritative; companyId (the scoped company captured at load)
   // only fills in when the entry has none.
   if (toUpsert.length > 0) {
-    const rows = toUpsert.map(e => ({
-      user_id: userId,
-      company_id: e.companyId || companyId,
-      date: e.date,
-      segments: e.segments || [],
-      time_off: e.timeOff || null,
-      notes: e.notes || null,
-      status: e.status ?? null,
-      booked_at: e.bookedAt ?? null,
-      // created_at is intentionally omitted: it stays DB-default managed.
-    }));
+    const rows = [];
+    for (const e of toUpsert) {
+      const rowCompanyId = e.companyId || companyId;
+      rows.push({
+        user_id: userId,
+        company_id: rowCompanyId,
+        date: e.date,
+        segments: e.segments || [],
+        time_off: e.timeOff || null,
+        notes: e.notes || null,
+        status: e.status ?? null,
+        booked_at: e.bookedAt ?? null,
+        // Stamp member_id directly (cached lookup); the autofill trigger stays
+        // as a safety net for any row that arrives with it null.
+        member_id: await getSignedInMemberId(rowCompanyId),
+        // created_at is intentionally omitted: it stays DB-default managed.
+      });
+    }
     const { error: upsertErr } = await supabase
       .from('entries')
       .upsert(rows, { onConflict: 'user_id,company_id,date' });
@@ -824,6 +874,10 @@ export const RemoteStore = {
               gross: pay.gross || 0,
               take_home: pay.takeHome || 0,
               hours: pay.hours || 0,
+              // Stamp member_id directly (cached lookup); the autofill trigger
+              // stays as a safety net. Update/delete paths still match on
+              // user_id and flip in a later chunk.
+              member_id: await getSignedInMemberId(companyId),
             });
           } else {
             // Existing row — check if any tracked field changed.
