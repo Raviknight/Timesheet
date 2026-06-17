@@ -20,7 +20,10 @@
 -- The original strict versions caused infinite recursion (company_members
 -- ALL policy) and an unresolved RLS rejection on company INSERT despite
 -- correct auth.uid() values. See docs/CONTEXT.md for the full debugging
--- story. These shortcuts are tracked as Phase 4 security tightening.
+-- story. As of 0.4 entries and pays are membership-scoped (member_id in the
+-- caller's company_members rows), no longer user_id-scoped. The remaining
+-- deferred shortcuts are the companies SELECT and INSERT USING(true) policies,
+-- slated for tightening in chunk 0.6.
 
 -- Enable RLS on all tables
 alter table profiles         enable row level security;
@@ -59,7 +62,17 @@ CREATE POLICY "Users manage own memberships"
 
 -- Settings, entries, pays, time_off_types: all scoped to user
 create policy "Users access own settings" on settings for all using (auth.uid() = user_id);
-create policy "Users access own entries"  on entries  for all using (auth.uid() = user_id);
-create policy "Users access own pays"     on pays     for all using (auth.uid() = user_id);
+create policy "Members access own entries" on entries for all
+  using (
+    member_id in (
+      select id from company_members where user_id = auth.uid()
+    )
+  );
+create policy "Members access own pays" on pays for all
+  using (
+    member_id in (
+      select id from company_members where user_id = auth.uid()
+    )
+  );
 create policy "Members access company time-off types" on time_off_types for all
   using (company_id in (select company_id from company_members where user_id = auth.uid()));

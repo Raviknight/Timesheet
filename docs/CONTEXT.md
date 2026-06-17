@@ -3,7 +3,7 @@
 Living document. Updated at the end of every working session so the next
 Claude (or future-you) can pick up without re-reading the whole chat history.
 
-## Current state (as of June 16, 2026)
+## Current state (as of June 17, 2026)
 
 Modular ES-module project that bundles to a single distributable file for
 production. Core features:
@@ -160,6 +160,81 @@ close any open modals before calling showAuthView. One-line
 addition once we know where modal close handlers live.
 
 ## Session log
+
+### June 17, 2026: 0.4 membership-scoped storage cutover
+
+Moved entries and pays off user_id-scoped storage and onto membership-scoped
+storage, in three steps.
+
+- **0.4a (commit 76eb707).** `storage.js` gained `getSignedInMemberId(companyId)`,
+  a session-cached lookup against `company_members`. The `writeEntries` upsert
+  payload and the pays insert payload now stamp `member_id` directly. The 0.3
+  autofill triggers stayed in place as a redundant safety net for this step.
+- **0.4b (DB cutover, run manually via the Supabase SQL editor, no app commit).**
+  Verified zero nulls on `entries.member_id` and `pays.member_id`, dropped both
+  autofill triggers and their plpgsql functions, swapped the `entries` and `pays`
+  RLS policies from user_id-scoped (`auth.uid() = user_id`) to membership-scoped
+  (`member_id in (select id from company_members where user_id = auth.uid())`),
+  and added NOT NULL to `entries.member_id` and `pays.member_id`.
+- **0.4c (this commit).** `schema.sql` now reflects the dropped triggers and the
+  NOT NULL columns; `policies.sql` reflects the membership-scoped RLS; this
+  CONTEXT.md entry plus the header bump are added.
+
+Carrying into 0.5 and 0.6:
+
+- Per-employee fields still on `companies` (`break_minutes`, `std_seg1_*`,
+  `std_seg2_*`, `start_date`) need to move off; this is 0.5's main job.
+- `entries.user_id` and `pays.user_id` are still populated and still referenced
+  in the pays update/delete `.eq()` expressions, plus the entries unique
+  constraint still keys `(user_id, company_id, date)`. Full decommissioning of
+  the user_id columns is its own chunk after 0.6.
+- companies SELECT/INSERT RLS is still `USING(true)`; tightening is 0.6.
+
+### June 17, 2026: Pre-0.4 clock and PTO fixes
+
+Three contained chunks landed ahead of 0.4, fixing clock and PTO behavior with
+no schema change.
+
+- **Clock fixes (commit 409d817).** Clock-out now auto-marks the break on a
+  qualifying segment (> 5h on Mon-Fri), using the new `segmentQualifiesForBreak`
+  helper in `core/time.js` so the threshold lives in one place. Midnight
+  rollover: `clockState` skips prior-day open segments, so the dashboard shows
+  Clock in rather than a stale Clock out across midnight. The invariant relaxed
+  from "at most one open clock" to "at most one open clock per company per day";
+  the `doClockIn` guard now checks `clockState` mode instead of raw
+  `findOpenClock`, letting a fresh clock-in coexist with a prior-day orphan.
+  - Latent: the break deduction in `computeHoursPaid` still does not enforce
+    Mon-Fri; it deducts on `breakTaken && gross > 5h` alone. A user who manually
+    checks `breakTaken` on a weekend segment over 5h will still get the
+    deduction. Deferred to its own chunk after Phase 0.
+- **PTO cycle metrics (commit ffebecb plus the floor-everywhere follow-up
+  535c595).** `computePoolAccrual` now emits a current-cycle scoped view: each
+  cycle carries `pastReservedHours`, `futureReservedHours`, `poolCapacityHours`,
+  and `unpaidHours`, plus a top-level `currentCycle` alias and seven
+  `currentCycle*` convenience fields. The dashboard balance card reads these and
+  no longer mixes lifetime `totalPaidHours` into "used to date". The pool label
+  shows the carry split when `carriedIn > 0` ("pool: 11 days (88 h) = 6 this
+  year + 5 carried"). All day rounding uses `Math.floor` (pool, used, reserved,
+  available, plus earned and carried in the label) so the bar arithmetic always
+  reconciles; the hours shown are derived from the floored day counts so days
+  and hours never disagree on screen.
+- **Forgotten clockout button (commit 2153c4a).** New const
+  `FORGOTTEN_CLOCK_HOURS = 16` in `core/clock.js`. `clockState` now also returns
+  `forgotten` and `forgottenOpen` (the oldest open segment past the threshold).
+  The dashboard renders a red "Forgotten clockout" button alongside the normal
+  control when `forgotten` is true; clicking it opens that entry's edit modal so
+  the user can supply the missing `clockOut`. No auto-close and no end-time
+  guess. Prior-day orphans surface as forgotten because they are always older
+  than 16h.
+
+Carrying into 0.4: weekend break deduction in `computeHoursPaid` (latent);
+`waitingDays` semantic divergence in `core/accrual.js` (engine delays the grant
+and permits unpaid usage, intended policy is grant accrues + usage blocked,
+deferred to its own chunk); Issue 2 calendar-year filter in `core/balances.js`
+for non-pool types (deferred indefinitely, no live impact); std_day-anchored
+"day" model with cross-midnight support (A.2 big, deferred); OT visualization on
+the pay period view (C, deferred); per-year pool override resolving
+`pool_by_year` (deferred).
 
 ### June 16, 2026: 0.3 membership backbone landed in the live DB
 

@@ -6,7 +6,7 @@
 --
 -- This file is the documentation mirror of the LIVE database: the columns,
 -- defaults, and constraints below were reconciled to production on
--- 2026-06-16. Row-Level Security policies live in policies.sql, not here.
+-- 2026-06-17. Row-Level Security policies live in policies.sql, not here.
 --
 -- Table order is profiles, companies, company_members, settings,
 -- time_off_types, entries, pays. profiles is created first, so its
@@ -145,7 +145,7 @@ create table entries (
   status text
     check (status in ('approved','pending','denied','cancelled')),
   booked_at timestamptz,
-  member_id uuid references company_members(id) on delete cascade,
+  member_id uuid not null references company_members(id) on delete cascade,
   unique (user_id, company_id, date)
 );
 
@@ -162,50 +162,8 @@ create table pays (
   hours numeric default 0,
   company_name text,
   created_at timestamptz default now(),
-  member_id uuid references company_members(id) on delete cascade,
+  member_id uuid not null references company_members(id) on delete cascade,
   unique (user_id, company_id, date)
 );
 
 create index pays_member_id_idx on pays (member_id);
-
--- TEMPORARY: Phase 0.3 autofill triggers.
--- These auto-populate entries.member_id and pays.member_id on writes so the
--- app's storage layer can keep writing user_id-only payloads through chunk
--- 0.3 without code changes. Both triggers and their functions WILL be
--- dropped in chunk 0.4 once storage.js writes member_id directly.
-
-create or replace function entries_autofill_member_id() returns trigger as $$
-begin
-  if NEW.member_id is null
-     and NEW.user_id is not null
-     and NEW.company_id is not null then
-    select id into NEW.member_id
-    from company_members
-    where user_id = NEW.user_id and company_id = NEW.company_id
-    limit 1;
-  end if;
-  return NEW;
-end;
-$$ language plpgsql;
-
-create trigger entries_autofill_member_id_trg
-  before insert or update on entries
-  for each row execute function entries_autofill_member_id();
-
-create or replace function pays_autofill_member_id() returns trigger as $$
-begin
-  if NEW.member_id is null
-     and NEW.user_id is not null
-     and NEW.company_id is not null then
-    select id into NEW.member_id
-    from company_members
-    where user_id = NEW.user_id and company_id = NEW.company_id
-    limit 1;
-  end if;
-  return NEW;
-end;
-$$ language plpgsql;
-
-create trigger pays_autofill_member_id_trg
-  before insert or update on pays
-  for each row execute function pays_autofill_member_id();
