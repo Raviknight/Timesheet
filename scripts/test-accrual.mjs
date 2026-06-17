@@ -267,6 +267,128 @@ approx('paid-to-date is 0 before its date', futBefore.totalPaidHours, 0);
 approx('paid becomes 16h once the date has arrived', futAfter.totalPaidHours, 16);
 
 // ---------------------------------------------------------------------------
+// 13-17. Current-cycle scoped metrics (the balance-card view).
+//   bookedSeq assigns strictly increasing bookedAt in list order, so listing
+//   the past-dated bookings before the future-dated ones makes the past ones
+//   reserve first (the realistic "booked earlier, dated sooner" pattern).
+// ---------------------------------------------------------------------------
+function bookedSeq(dates, code = 'PTO') {
+  return dates.map((d, i) => ({
+    date: d, hours: 8, code, status: 'approved',
+    bookedAt: `2020-01-01T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}Z`,
+  }));
+}
+
+// 13. Mid-cycle hire UPFRONT, with usage in both cycles and a cap carryover.
+console.log('\n== 13. current-cycle metrics: upfront mid-cycle hire + carryover ==');
+const cc13Usage = bookedSeq([
+  '2025-06-02', '2025-07-07', '2025-08-04', '2025-09-01', '2025-10-06', // 5 in 2025 (40h)
+  '2026-01-05', '2026-02-02', '2026-03-02', '2026-04-06', '2026-05-04', // 5 past 2026 (40h)
+  '2026-07-06', '2026-08-03', '2026-09-07', '2026-10-05', '2026-11-02', // 5 future 2026 (40h)
+]);
+const cc13 = computePoolAccrual({
+  policy: { poolDays: 10, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar', carryoverMode: 'cap', carryoverCap: 5 },
+  startDate: '2025-05-19', asOf: '2026-06-16', usage: cc13Usage,
+});
+const c13a = cc13.cycles[0], c13b = cc13.cycles[1];
+approx('13: 2025 fullEarned = 10*227/365*8 = 49.75h', c13a.fullEarnedHours, 49.7534, 5e-3);
+approx('13: 2025 reservedHours = 40', c13a.reservedHours, 40, 5e-3);
+approx('13: 2025 pastReservedHours = 40', c13a.pastReservedHours, 40, 5e-3);
+approx('13: 2025 futureReservedHours = 0', c13a.futureReservedHours, 0, 5e-3);
+approx('13: 2025 endBalance = 9.75h', c13a.endBalanceHours, 9.7534, 5e-3);
+approx('13: 2025 carriedOut = 9.75h (under cap 40)', c13a.carriedOutHours, 9.7534, 5e-3);
+approx('13: 2026 carriedIn = 9.75h', c13b.carriedInHours, 9.7534, 5e-3);
+approx('13: 2026 fullEarned = 80h (upfront, full year)', c13b.fullEarnedHours, 80, 5e-3);
+approx('13: 2026 poolCapacity = 89.75h', c13b.poolCapacityHours, 89.7534, 5e-3);
+approx('13: 2026 pastReservedHours = 40', c13b.pastReservedHours, 40, 5e-3);
+approx('13: 2026 futureReservedHours = 40', c13b.futureReservedHours, 40, 5e-3);
+approx('13: 2026 reservedHours = 80 (sum)', c13b.reservedHours, 80, 5e-3);
+approx('13: currentCyclePoolHours = 89.75', cc13.currentCyclePoolHours, 89.7534, 5e-3);
+approx('13: currentCycleUsedHours = 40', cc13.currentCycleUsedHours, 40, 5e-3);
+approx('13: currentCycleReservedHours = 40', cc13.currentCycleReservedHours, 40, 5e-3);
+approx('13: currentCycleAvailableHours = 9.75', cc13.currentCycleAvailableHours, 9.7534, 5e-3);
+approx('13: currentCycleUnpaidHours = 0', cc13.currentCycleUnpaidHours, 0, 5e-3);
+
+// 14. Same shape, but 2026 bookings overdraw the pool (8 past + 5 future = 104h).
+console.log('\n== 14. current-cycle metrics: overdraw split ==');
+const cc14Usage = bookedSeq([
+  '2025-06-02', '2025-07-07', '2025-08-04', '2025-09-01', '2025-10-06',           // 5 in 2025 (40h)
+  '2026-01-05', '2026-01-12', '2026-02-02', '2026-02-09', '2026-03-02',
+  '2026-03-09', '2026-04-06', '2026-05-04',                                       // 8 past 2026 (64h)
+  '2026-07-06', '2026-08-03', '2026-09-07', '2026-10-05', '2026-11-02',           // 5 future 2026 (40h)
+]);
+const cc14 = computePoolAccrual({
+  policy: { poolDays: 10, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar', carryoverMode: 'cap', carryoverCap: 5 },
+  startDate: '2025-05-19', asOf: '2026-06-16', usage: cc14Usage,
+});
+approx('14: currentCycleUsedHours = 64 (8 past days)', cc14.currentCycleUsedHours, 64, 5e-3);
+approx('14: currentCycleReservedHours = 25.75 (capacity - 64)', cc14.currentCycleReservedHours, 25.7534, 5e-3);
+approx('14: currentCycleAvailableHours = 0', cc14.currentCycleAvailableHours, 0, 5e-3);
+approx('14: currentCycleUnpaidHours = 14.25 (104 - 89.75)', cc14.currentCycleUnpaidHours, 14.2466, 5e-3);
+
+// 15. Accrued proration spanning two cycles: poolCapacity uses earnedByDate(asOf).
+console.log('\n== 15. current-cycle metrics: accrued proration spanning two cycles ==');
+const cc15Usage = bookedSeq([
+  '2025-09-01', '2025-10-01',  // 2 in 2025 (16h)
+  '2026-02-02', '2026-03-02',  // 2 past 2026 (16h)
+  '2026-08-03', '2026-09-07',  // 2 future 2026 (16h)
+]);
+const cc15 = computePoolAccrual({
+  policy: { poolDays: 10, hoursPerDay: 8, grantStyle: 'accrued', accrualAnchor: 'calendar', carryoverMode: 'cap', carryoverCap: 10 },
+  startDate: '2025-07-01', asOf: '2026-06-16', usage: cc15Usage,
+});
+const c15a = cc15.cycles[0], c15b = cc15.cycles[1];
+approx('15: 2025 fullEarned = 10*184/365*8 = 40.33h', c15a.fullEarnedHours, 40.3288, 5e-3);
+approx('15: 2025 reservedHours = 16', c15a.reservedHours, 16, 5e-3);
+approx('15: 2025 carriedOut = 24.33h (under cap 80)', c15a.carriedOutHours, 24.3288, 5e-3);
+approx('15: 2026 carriedIn = 24.33h', c15b.carriedInHours, 24.3288, 5e-3);
+// NOTE: the engine stores earnedHere (= earnedByDate(asOf)) in fullEarnedHours
+// for the current accrued cycle, NOT the un-prorated full-year 80h (that 80 is
+// an internal local). poolCapacity and currentCycleEarnedHours both reflect the
+// as-of accrued value, which is what the reserve loop draws against.
+approx('15: 2026 earnedHere (accrued to asOf) = 80*166/365 = 36.38h', cc15.currentCycleEarnedHours, 36.3836, 5e-3);
+approx('15: 2026 poolCapacity = 24.33 + 36.38 = 60.71h', c15b.poolCapacityHours, 60.7123, 5e-3);
+approx('15: 2026 pastReservedHours = 16', c15b.pastReservedHours, 16, 5e-3);
+approx('15: 2026 futureReservedHours = 16', c15b.futureReservedHours, 16, 5e-3);
+approx('15: 2026 reservedHours = 32 (sum)', c15b.reservedHours, 32, 5e-3);
+approx('15: currentCycleAvailableHours = 28.71', cc15.currentCycleAvailableHours, 28.7123, 5e-3);
+
+// 16. Cross-cycle isolation: prior-cycle and next-cycle usage stay out of the
+// current-cycle counts.
+console.log('\n== 16. current-cycle metrics: cross-cycle isolation ==');
+const cc16Usage = bookedSeq([
+  '2025-03-03', '2025-04-07', '2025-05-05', // 3 in 2025 (closed cycle)
+  '2026-02-02', '2026-03-02',               // 2 past 2026
+  '2026-08-03', '2026-09-07',               // 2 future 2026
+  '2027-02-01',                             // 1 in 2027 (future cycle, out of scope)
+]);
+const cc16 = computePoolAccrual({
+  policy: { poolDays: 10, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar', carryoverMode: 'none' },
+  startDate: '2025-01-01', asOf: '2026-06-16', usage: cc16Usage,
+});
+approx('16: currentCycleUsedHours = 16 (only 2026 past)', cc16.currentCycleUsedHours, 16, 5e-3);
+approx('16: currentCycleReservedHours = 16 (only 2026 future)', cc16.currentCycleReservedHours, 16, 5e-3);
+approx('16: currentCycleAvailableHours = 80 - 16 - 16 = 48', cc16.currentCycleAvailableHours, 48, 5e-3);
+approx('16: 2025 cycle counts its own usage (24h), not the current cycle', cc16.cycles[0].reservedHours, 24, 5e-3);
+eq('16: 2027 entry is out of walked scope (absent from overdraw)',
+  cc16.overdraw.some(o => o.date.startsWith('2027')), false);
+
+// 17. asOf before hire: no meaningful current cycle.
+console.log('\n== 17. current-cycle metrics: asOf before hire -> null ==');
+const cc17 = computePoolAccrual({
+  policy: { poolDays: 10, hoursPerDay: 8, grantStyle: 'upfront', accrualAnchor: 'calendar' },
+  startDate: '2026-09-01', asOf: '2026-08-01',
+});
+eq('17: currentCycle is null', cc17.currentCycle, null);
+eq('17: currentCyclePoolHours = 0', cc17.currentCyclePoolHours, 0);
+eq('17: currentCycleUsedHours = 0', cc17.currentCycleUsedHours, 0);
+eq('17: currentCycleReservedHours = 0', cc17.currentCycleReservedHours, 0);
+eq('17: currentCycleAvailableHours = 0', cc17.currentCycleAvailableHours, 0);
+eq('17: currentCycleUnpaidHours = 0', cc17.currentCycleUnpaidHours, 0);
+eq('17: currentCycleEarnedHours = 0', cc17.currentCycleEarnedHours, 0);
+eq('17: currentCycleCarriedInHours = 0', cc17.currentCycleCarriedInHours, 0);
+
+// ---------------------------------------------------------------------------
 // Concrete cases printed for eyeballing the semantics before wiring.
 // ---------------------------------------------------------------------------
 console.log('\n---- concrete cases (eyeball) ----');

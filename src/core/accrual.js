@@ -149,7 +149,12 @@ export function mergeSharedPolicy(owner, sharedTypes = []) {
  *   cycles: Array<{
  *     index: number, start: string, end: string,
  *     carriedInHours: number, fullEarnedHours: number,
- *     reservedHours: number, usedPaidHours: number,
+ *     poolCapacityHours: number,     // carriedIn + earnedHere (what the loop draws against)
+ *     reservedHours: number,         // pastReserved + futureReserved
+ *     pastReservedHours: number,     // reserved by bookings dated <= asOf
+ *     futureReservedHours: number,   // reserved by bookings dated > asOf
+ *     unpaidHours: number,           // approved hours over pool this cycle (not occurrence-gated)
+ *     usedPaidHours: number,
  *     endBalanceHours: number, carriedOutHours: number, isCurrent: boolean
  *   }>,
  *   carriedInHours: number,
@@ -165,7 +170,15 @@ export function mergeSharedPolicy(owner, sharedTypes = []) {
  *                     paidHours: number, unpaidHours: number }>,
  *   totalReservedHours: number,
  *   totalPaidHours: number,
- *   totalUnpaidHours: number
+ *   totalUnpaidHours: number,
+ *   currentCycle: object|null,         // the isCurrent cycle, or null when asOf precedes startDate
+ *   currentCyclePoolHours: number,     // capacity available against the pool as of asOf
+ *   currentCycleUsedHours: number,     // pastReservedHours of the current cycle
+ *   currentCycleReservedHours: number, // futureReservedHours of the current cycle
+ *   currentCycleAvailableHours: number,// max(0, pool - used - reserved)
+ *   currentCycleUnpaidHours: number,   // over-pool hours this cycle
+ *   currentCycleEarnedHours: number,   // earnedHere of the current cycle (earnedByDate(asOf))
+ *   currentCycleCarriedInHours: number // carried into the current cycle
  * }}
  */
 export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
@@ -273,11 +286,21 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
       .sort(byBooking);
 
     let reserved = 0;
+    let pastReserved = 0;   // reserved by bookings dated on/before asOf (occurred)
+    let futureReserved = 0; // reserved by bookings dated after asOf (future-booked)
+    let cycleUnpaid = 0;    // approved hours this cycle that found no room (over pool)
     for (const u of cycleApproved) {
       const room = Math.max(0, capacity - reserved);
       const resv = Math.min(u.hours, room);
       reserved += resv;
       u.reserved = resv;
+      // Split reserved hours by whether the booking's date has occurred as of
+      // asOf (date <= asOf, same convention as `occurred` below). The over-pool
+      // remainder accrues to the cycle's unpaid figure regardless of occurrence,
+      // so it reads as "over pool now", not "over pool once the day arrives".
+      if (daysBetween(u.date, asOf) >= 0) pastReserved += resv;
+      else futureReserved += resv;
+      cycleUnpaid += u.hours - resv;
     }
 
     const endBalance = Math.max(0, capacity - reserved);
@@ -292,7 +315,11 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
       end,
       carriedInHours: carriedIn,
       fullEarnedHours: earnedHere,
+      poolCapacityHours: capacity, // carriedIn + earnedHere: what the loop draws against
       reservedHours: reserved,
+      pastReservedHours: pastReserved,
+      futureReservedHours: futureReserved,
+      unpaidHours: cycleUnpaid,
       usedPaidHours: reserved, // back-compat alias
       endBalanceHours: endBalance,
       carriedOutHours: carriedOut,
@@ -344,6 +371,21 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
   const totalPaidHours = overdraw.reduce((s2, o) => s2 + o.paidHours, 0);
   const totalUnpaidHours = overdraw.reduce((s2, o) => s2 + o.unpaidHours, 0);
 
+  // Current-cycle scoped view for the balance card. When asOf precedes the
+  // start date (not yet hired), there is no meaningful current cycle: expose
+  // null and zeroed convenience fields rather than the clamped first cycle.
+  const currentCycle = daysBetween(startDate, asOf) >= 0
+    ? (cycles.find(c => c.isCurrent) || null)
+    : null;
+  const currentCyclePoolHours = currentCycle ? currentCycle.poolCapacityHours : 0;
+  const currentCycleUsedHours = currentCycle ? currentCycle.pastReservedHours : 0;
+  const currentCycleReservedHours = currentCycle ? currentCycle.futureReservedHours : 0;
+  const currentCycleAvailableHours = Math.max(
+    0, currentCyclePoolHours - currentCycleUsedHours - currentCycleReservedHours);
+  const currentCycleUnpaidHours = currentCycle ? currentCycle.unpaidHours : 0;
+  const currentCycleEarnedHours = currentCycle ? currentCycle.fullEarnedHours : 0;
+  const currentCycleCarriedInHours = currentCycle ? currentCycle.carriedInHours : 0;
+
   return {
     eligibilityDate,
     hoursPerDay,
@@ -361,5 +403,13 @@ export function computePoolAccrual({ policy, startDate, asOf, usage = [] }) {
     totalReservedHours,
     totalPaidHours,
     totalUnpaidHours,
+    currentCycle,
+    currentCyclePoolHours,
+    currentCycleUsedHours,
+    currentCycleReservedHours,
+    currentCycleAvailableHours,
+    currentCycleUnpaidHours,
+    currentCycleEarnedHours,
+    currentCycleCarriedInHours,
   };
 }

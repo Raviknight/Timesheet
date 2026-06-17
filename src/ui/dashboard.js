@@ -471,12 +471,31 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     const r = p.result;
     const sharedTypes = p.sharedTypes;
     const group = p.group;
-    const hpd = t.hoursPerDay || 8;
+    const hpd = r.hoursPerDay || t.hoursPerDay || 8;
 
-    const poolHours = r.allotmentHours;
-    const reservedNow = r.usedHours;       // reserved this cycle, incl future approved
-    const usedToDate = r.totalPaidHours;   // covered hours whose day has occurred
-    const ratio = poolHours > 0 ? reservedNow / poolHours : 0;
+    // Current-cycle scoped figures (core/accrual). Pool = capacity drawn against
+    // as of today (this year's earned + carried-in); used = past reserved;
+    // reserved = future-booked; available = pool - used - reserved.
+    const poolHours = r.currentCyclePoolHours;
+    const usedHours = r.currentCycleUsedHours;
+    const reservedHours = r.currentCycleReservedHours;
+    const availableHours = r.currentCycleAvailableHours;
+
+    // Day counts rounded to whole days for display; available floors so we
+    // never overstate what's left. Hours shown are derived back from the
+    // rounded day counts so the days and hours never disagree on screen.
+    const poolDays = hpd > 0 ? Math.round(poolHours / hpd) : 0;
+    const usedDays = hpd > 0 ? Math.round(usedHours / hpd) : 0;
+    const reservedDays = hpd > 0 ? Math.round(reservedHours / hpd) : 0;
+    const availableDays = hpd > 0 ? Math.floor(availableHours / hpd) : 0;
+
+    const poolHoursDisplay = poolDays * hpd;
+    const usedHoursDisplay = usedDays * hpd;
+    const reservedHoursDisplay = reservedDays * hpd;
+    const availableHoursDisplay = availableDays * hpd;
+
+    const consumed = usedHours + reservedHours;
+    const ratio = poolHours > 0 ? consumed / poolHours : 0;
     const barClass = ratio >= 0.9 ? 'danger' : ratio >= 0.7 ? 'warn' : '';
     const pct = Math.min(100, Math.max(0, ratio * 100));
 
@@ -484,35 +503,39 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
       ? ' + ' + sharedTypes.map(x => escapeHtml(x.label)).join(' + ') + ' (shared)'
       : '';
 
+    // Pool label shows the carry split only when something carried over.
+    const poolLabel = r.currentCycleCarriedInHours > 0
+      ? `pool: ${poolDays} days (${poolHoursDisplay} h) = ${Math.round(r.currentCycleEarnedHours / hpd)} this year + ${Math.round(r.currentCycleCarriedInHours / hpd)} carried`
+      : `pool: ${poolDays} days (${poolHoursDisplay} h)`;
+
     html += `<div style="margin-bottom:16px">
       <div class="row" style="justify-content:space-between;align-items:baseline">
         <strong>${escapeHtml(t.label)}${sharedLabel}</strong>
         <span style="font-variant-numeric: tabular-nums;font-size:13px">
-          pool: ${r.allotmentDays} days (${poolHours.toFixed(0)} h)
+          ${poolLabel}
         </span>
       </div>
       <div class="progress" style="height:8px;display:flex">
         <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
       </div>
       <div class="row" style="margin-top:8px;gap:10px;font-size:12px">
-        <span style="color:var(--success)"><strong>${r.availableDays.toFixed(2)}</strong> days
+        <span style="color:var(--success)"><strong>${availableDays}</strong> day${availableDays === 1 ? '' : 's'}
           <span class="muted">available</span>
-          <span class="muted">(${r.availableHours.toFixed(1)} h)</span></span>
-        <span><strong>${(usedToDate / hpd).toFixed(2)}</strong> days
+          <span class="muted">(${availableHoursDisplay} h)</span></span>
+        <span><strong>${usedDays}</strong> days
           <span class="muted">used</span>
-          <span class="muted">(${usedToDate.toFixed(1)} h)</span></span>
-        <span style="margin-left:auto;color:var(--warn)"><strong>${(reservedNow / hpd).toFixed(2)}</strong> days
+          <span class="muted">(${usedHoursDisplay} h)</span></span>
+        <span style="margin-left:auto;color:var(--warn)"><strong>${reservedDays}</strong> days
           <span style="opacity:0.7">reserved</span>
-          <span style="opacity:0.7">(${reservedNow.toFixed(1)} h)</span></span>
+          <span style="opacity:0.7">(${reservedHoursDisplay} h)</span></span>
       </div>`;
 
-    // Paid/unpaid breakdown from the engine's coverage, consistent with what the
-    // pay calc now pays: covered days that have occurred pay; over-pool days are
+    // Over-pool breakdown: covered days pay; over-pool hours this cycle are
     // unpaid. Shown only when something is over pool (within budget reads as
     // before).
-    if (r.totalUnpaidHours > 0) {
+    if (r.currentCycleUnpaidHours > 0) {
       html += `<div class="help" style="margin-top:4px;color:var(--danger)">
-        ${r.totalPaidHours.toFixed(1)} h paid · ${r.totalUnpaidHours.toFixed(1)} h over pool (unpaid)
+        ${usedHoursDisplay} h paid · ${Math.round(r.currentCycleUnpaidHours / hpd) * hpd} h over pool (unpaid)
       </div>`;
     }
 
