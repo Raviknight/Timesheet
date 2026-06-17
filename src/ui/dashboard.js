@@ -15,7 +15,7 @@ import { countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/ba
 import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../core/coverage.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
-import { findOpenClock, clockInToday, clockOut } from '../core/clock.js';
+import { clockState, clockInToday, clockOut } from '../core/clock.js';
 import { ensureEntriesForCompany, saveEntriesForCompany } from '../app.js';
 import { setSyncIdle } from './topbar.js';
 import { toast } from './toast.js';
@@ -82,10 +82,10 @@ function renderClockControl(state, company) {
   const host = document.getElementById('clockControl');
   if (!host) return;
 
-  const open = findOpenClock(state.entriesByCompany);
+  const { mode, open } = clockState(state.entriesByCompany);
   const companies = Array.isArray(state.companies) ? state.companies : [];
 
-  if (open) {
+  if (mode === 'out') {
     const oc = companies.find(c => String(c.id ?? '') === String(open.companyId));
     const ocName = oc ? oc.name : '';
     const otherCompany = String(open.companyId) !== String(company.id ?? '');
@@ -111,8 +111,10 @@ function renderClockControl(state, company) {
 }
 
 async function doClockIn(state, company) {
-  // Hard guard: never start a second clock while one is open anywhere.
-  if (findOpenClock(state.entriesByCompany)) {
+  // Hard guard: never start a second clock while one is ACTIVE. A prior-day
+  // orphan is not active (clockState returns mode 'in'), so clock-in proceeds
+  // and the orphan is left for the user to close by editing the entry.
+  if (clockState(state.entriesByCompany).mode === 'out') {
     toast('Already clocked in. Clock out first.');
     renderDashboard(state);
     return;

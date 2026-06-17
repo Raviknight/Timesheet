@@ -11,10 +11,13 @@
  * math (computeSegmentHours) already returns 0 for a missing clockOut, so an
  * open segment contributes nothing to any total until it is closed.
  *
- * Invariant enforced here: at most one open segment across ALL companies.
+ * Invariant: at most one open clock per company per day. The relaxed model
+ * lets a prior-day orphan (a clock left running across midnight) coexist with
+ * today's open clock; clockState treats the orphan as inactive so a fresh
+ * clock-in is allowed without first closing it.
  */
 
-import { fmtDate, pad } from './time.js';
+import { fmtDate, pad, segmentQualifiesForBreak } from './time.js';
 
 /** True when a segment has been clocked into but not yet out. */
 export function isOpenSegment(seg) {
@@ -49,6 +52,45 @@ export function findOpenClock(entriesByCompany) {
   return null;
 }
 
+/**
+ * Decide what the dashboard clock control should offer.
+ *
+ * The ACTIVE clock is an open segment dated today or later. An open segment
+ * dated strictly earlier than today is a midnight orphan (a clock left running
+ * across midnight, or longer): we do NOT treat it as active, so the control
+ * offers Clock in. The orphan stays in storage untouched, with no guessed end
+ * time; the user closes it later by editing the entry. Under the relaxed
+ * per-company-per-day model an orphan and today's open clock may coexist.
+ *
+ * @param {Object<string, Object<string, object>>} entriesByCompany
+ * @returns {{ mode: 'in' | 'out', open: object|null }}
+ *          mode 'out' carries the active open clock ({companyId, date,
+ *          segIndex, clockIn}, matching findOpenClock's shape); mode 'in'
+ *          carries open: null.
+ */
+export function clockState(entriesByCompany, now = new Date()) {
+  if (!entriesByCompany) return { mode: 'in', open: null };
+  const today = todayStr(now);
+  // The relaxed model allows a prior-day orphan to coexist with today's open
+  // clock, so we cannot just take findOpenClock's first match (that could be
+  // the orphan). The ACTIVE clock is an open segment dated today or later;
+  // prior-day orphans are skipped and left for the user to close.
+  for (const companyId of Object.keys(entriesByCompany)) {
+    const map = entriesByCompany[companyId];
+    if (!map) continue;
+    for (const date of Object.keys(map)) {
+      const segIndex = openSegmentIndex(map[date]);
+      if (segIndex !== -1 && date >= today) {
+        return {
+          mode: 'out',
+          open: { companyId, date, segIndex, clockIn: map[date].segments[segIndex].clockIn },
+        };
+      }
+    }
+  }
+  return { mode: 'in', open: null };
+}
+
 /** Current wall-clock time as "HH:MM" (no rounding; the pay basis rounds). */
 export function nowHM(now = new Date()) {
   return pad(now.getHours()) + ':' + pad(now.getMinutes());
@@ -65,7 +107,9 @@ export function todayStr(now = new Date()) {
  * breakTaken starts false; the user owns the break judgment in the entry modal.
  * Mutates `map` in place and returns the affected date.
  *
- * Caller must have already verified no open clock exists anywhere.
+ * Caller must have already verified no ACTIVE clock exists (clockState mode
+ * 'out'). A prior-day orphan may still be present and is left untouched; this
+ * just appends today's open segment alongside it.
  */
 export function clockInToday(map, companyId, now = new Date()) {
   const date = todayStr(now);
@@ -111,6 +155,10 @@ export function clockOut(map, companyId, now = new Date()) {
 
   if (today === openDate) {
     seg.clockOut = nowHM(now);
+    // Auto-mark the break on a qualifying clock-out (> 5h, weekday). Same rule
+    // computeSegmentHours uses to deduct; the helper owns the threshold so it
+    // is not re-implemented here. Non-qualifying segments are left untouched.
+    if (segmentQualifiesForBreak(seg, openDate)) seg.breakTaken = true;
     return { date: openDate, crossedMidnight: false, days: [openDate] };
   }
 

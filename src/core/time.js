@@ -126,6 +126,31 @@ export function computeSegmentHours(seg, date, settings, breakMinutes, round = t
 }
 
 /**
+ * True when a segment qualifies for an automatic break deduction: it runs
+ * longer than 5h on the 15-minute pay basis (the same rounded `gross > 5*60`
+ * test computeSegmentHours uses to deduct) AND falls on a weekday (Mon-Fri).
+ *
+ * This is the gate one-click clock-out uses to auto-set seg.breakTaken. It does
+ * NOT change the deduction itself: computeSegmentHours still deducts only when
+ * seg.breakTaken is set. The weekday judgment is normally the user's (via the
+ * entry-modal checkbox); this helper encodes it for the auto-set path only,
+ * matching working agreement #6 (break > 5h on a weekday).
+ *
+ * @param {object} seg   { clockIn, clockOut }
+ * @param {string} date  "YYYY-MM-DD" (drives the weekday check)
+ */
+export function segmentQualifiesForBreak(seg, date) {
+  if (!seg) return false;
+  const ci = timeToMinutes(seg.clockIn);
+  const co = timeToMinutes(seg.clockOut);
+  if (ci === null || co === null) return false;
+  const gross = roundQuarter(co) - roundQuarter(ci);
+  if (gross <= 5 * 60) return false; // strictly greater than 5h, not >=
+  const dow = parseDate(date).getDay(); // Sun=0 .. Sat=6
+  return dow >= 1 && dow <= 5;
+}
+
+/**
  * Worked hours for a day: sum of segment hours only. Ignores any time-off
  * code. Use this for OT calculations and anything that means "time the
  * user actually clocked in".

@@ -16,7 +16,7 @@
 
 import { computeHoursWorked, computeHoursPaid } from '../src/core/time.js';
 import {
-  isOpenSegment, openSegmentIndex, findOpenClock,
+  isOpenSegment, openSegmentIndex, findOpenClock, clockState,
   clockInToday, clockOut, nowHM,
 } from '../src/core/clock.js';
 
@@ -129,6 +129,98 @@ eqHrs('midnight: two-day worked total equals 4h elapsed', midTotal, 4.0);
 
 // nowHM zero-pads.
 check('nowHM pads', nowHM(new Date(2026, 5, 15, 9, 5)) === '09:05');
+
+// ---------------------------------------------------------------------------
+// AUTO-BREAK on qualifying clock-out: > 5h on a weekday (Mon-Fri) sets
+// breakTaken; the rule mirrors computeSegmentHours' deduction threshold.
+// Calendar refs: 2026-06-17 is a Wednesday, 2026-06-20 is a Saturday.
+// ---------------------------------------------------------------------------
+function openMap(date, clockIn, extraSegs = []) {
+  return {
+    [date]: {
+      date, companyId: '1',
+      segments: [...extraSegs, { clockIn, clockOut: null, breakTaken: false }],
+    },
+  };
+}
+
+const wedSix = openMap('2026-06-17', '08:00');
+clockOut(wedSix, '1', new Date(2026, 5, 17, 14, 0)); // 08:00 -> 14:00 = 6h
+check('auto-break: 6h Wednesday sets breakTaken=true',
+  wedSix['2026-06-17'].segments[0].breakTaken === true);
+
+const wedFour = openMap('2026-06-17', '08:00');
+clockOut(wedFour, '1', new Date(2026, 5, 17, 12, 0)); // 4h
+check('auto-break: 4h Wednesday leaves breakTaken=false',
+  wedFour['2026-06-17'].segments[0].breakTaken === false);
+
+const satSix = openMap('2026-06-20', '08:00');
+clockOut(satSix, '1', new Date(2026, 5, 20, 14, 0)); // 6h but Saturday
+check('auto-break: 6h Saturday leaves breakTaken=false (weekend)',
+  satSix['2026-06-20'].segments[0].breakTaken === false);
+
+const wedFive = openMap('2026-06-17', '08:00');
+clockOut(wedFive, '1', new Date(2026, 5, 17, 13, 0)); // exactly 5h
+check('auto-break: 5h Wednesday leaves breakTaken=false (strictly > 5h, not >=)',
+  wedFive['2026-06-17'].segments[0].breakTaken === false);
+
+// Two segments: a prior closed 3h plus an open one that closes at 6h. Only the
+// 6h segment (the one being closed) gets breakTaken; the 3h stays untouched.
+const wedTwo = openMap('2026-06-17', '12:00',
+  [{ clockIn: '08:00', clockOut: '11:00', breakTaken: false }]); // closed 3h
+clockOut(wedTwo, '1', new Date(2026, 5, 17, 18, 0)); // open 12:00 -> 18:00 = 6h
+check('auto-break: only the 6h segment gets breakTaken, 3h stays false',
+  wedTwo['2026-06-17'].segments[0].breakTaken === false &&
+  wedTwo['2026-06-17'].segments[1].breakTaken === true);
+
+// ---------------------------------------------------------------------------
+// clockState: hide Clock out across midnight. An open segment dated before
+// today is a midnight orphan; the control offers Clock in and leaves it alone.
+// ---------------------------------------------------------------------------
+const nowToday = new Date(2026, 5, 17, 10, 0); // 2026-06-17
+const csOpenToday = { '1': { '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '08:00', clockOut: null, breakTaken: false }] } } };
+const stOut = clockState(csOpenToday, nowToday);
+check('clockState: open segment dated today -> Clock out',
+  stOut.mode === 'out' && stOut.open && stOut.open.date === '2026-06-17');
+
+const csOpenYesterday = { '1': { '2026-06-16': { date: '2026-06-16', segments: [{ clockIn: '22:00', clockOut: null, breakTaken: false }] } } };
+const stIn = clockState(csOpenYesterday, nowToday);
+check('clockState: open segment dated yesterday -> Clock in (orphan)',
+  stIn.mode === 'in' && stIn.open === null);
+check('clockState: yesterday orphan left untouched in storage',
+  csOpenYesterday['1']['2026-06-16'].segments[0].clockOut === null);
+
+const csNone = { '1': { '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '08:00', clockOut: '16:30', breakTaken: true }] } } };
+check('clockState: no open segment -> Clock in',
+  clockState(csNone, nowToday).mode === 'in');
+
+// ---------------------------------------------------------------------------
+// Relaxed model: doClockIn guard agrees with clockState, and a prior-day
+// orphan may coexist with today's fresh open clock.
+// ---------------------------------------------------------------------------
+// No open segments anywhere -> mode 'in' (clock-in allowed).
+const csEmpty = { '1': {} };
+check('clockState: no open segments anywhere -> Clock in (allow clock-in)',
+  clockState(csEmpty, nowToday).mode === 'in');
+
+// Prior-day orphan, no today-open -> mode 'in'. Then clock in today: the orphan
+// is left untouched and today's open segment is appended. Two open segments on
+// two dates coexist, and a follow-up clockState reports the active one (out).
+const orphanMap = { '2026-06-16': { date: '2026-06-16', companyId: '1', segments: [{ clockIn: '22:00', clockOut: null, breakTaken: false }] } };
+const orphanEbc = { '1': orphanMap };
+check('clockState: prior-day orphan only -> Clock in (allow clock-in)',
+  clockState(orphanEbc, nowToday).mode === 'in');
+clockInToday(orphanMap, '1', nowToday); // appends today's open segment
+check('relaxed: orphan untouched after clock-in (still open on 2026-06-16)',
+  isOpenSegment(orphanMap['2026-06-16'].segments[0]));
+check('relaxed: today open segment appended on 2026-06-17',
+  !!orphanMap['2026-06-17'] && isOpenSegment(orphanMap['2026-06-17'].segments[0]));
+check('relaxed: two open segments coexist on two dates',
+  openSegmentIndex(orphanMap['2026-06-16']) !== -1 &&
+  openSegmentIndex(orphanMap['2026-06-17']) !== -1);
+const stAfter = clockState(orphanEbc, nowToday);
+check('relaxed: follow-up clockState -> Clock out (active = today)',
+  stAfter.mode === 'out' && stAfter.open && stAfter.open.date === '2026-06-17');
 
 console.log(`\n${fail === 0 ? 'All clock self-tests passed.' : fail + ' FAILED'}`);
 process.exit(fail === 0 ? 0 : 1);
