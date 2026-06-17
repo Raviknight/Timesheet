@@ -67,13 +67,34 @@ alter table profiles
   foreign key (active_company_id) references companies(id) on delete set null;
 
 -- Company members: future-proof for multi-tenant (Phase 4+).
+--
+-- Per-employee fields (display_name, hire_date, break_minutes, std_seg*) live
+-- here now: a membership is the unit an employee's work configuration hangs off.
+-- The synthetic id PK is required because a membership with a null user_id
+-- (owner-managed, not yet claimed) cannot use the old composite
+-- (company_id, user_id) PK. Column order matches live ordinal_position: the new
+-- columns were appended by ALTER TABLE, so id sits in position 5, not 1.
 create table company_members (
-  company_id uuid references companies(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
   role text default 'owner' check (role in ('owner','admin','supervisor','employee')),
   joined_at timestamptz default now(),
-  primary key (company_id, user_id)
+  id uuid not null default gen_random_uuid(),
+  display_name text,
+  hire_date date,
+  break_minutes integer,
+  std_seg1_start text,
+  std_seg1_end text,
+  std_seg2_start text,
+  std_seg2_end text,
+  primary key (id)
 );
+
+-- Partial unique: a user holds at most one claimed membership per company.
+-- Owner-managed members (user_id null) are allowed in any number per company.
+create unique index company_members_company_user_unique
+  on company_members (company_id, user_id)
+  where user_id is not null;
 
 -- Settings: 1-to-1 with user (per-user settings, not per-company yet).
 create table settings (
@@ -124,8 +145,11 @@ create table entries (
   status text
     check (status in ('approved','pending','denied','cancelled')),
   booked_at timestamptz,
+  member_id uuid references company_members(id) on delete cascade,
   unique (user_id, company_id, date)
 );
+
+create index entries_member_id_idx on entries (member_id);
 
 -- Pays: paychecks.
 create table pays (
@@ -138,5 +162,50 @@ create table pays (
   hours numeric default 0,
   company_name text,
   created_at timestamptz default now(),
+  member_id uuid references company_members(id) on delete cascade,
   unique (user_id, company_id, date)
 );
+
+create index pays_member_id_idx on pays (member_id);
+
+-- TEMPORARY: Phase 0.3 autofill triggers.
+-- These auto-populate entries.member_id and pays.member_id on writes so the
+-- app's storage layer can keep writing user_id-only payloads through chunk
+-- 0.3 without code changes. Both triggers and their functions WILL be
+-- dropped in chunk 0.4 once storage.js writes member_id directly.
+
+create or replace function entries_autofill_member_id() returns trigger as $$
+begin
+  if NEW.member_id is null
+     and NEW.user_id is not null
+     and NEW.company_id is not null then
+    select id into NEW.member_id
+    from company_members
+    where user_id = NEW.user_id and company_id = NEW.company_id
+    limit 1;
+  end if;
+  return NEW;
+end;
+$$ language plpgsql;
+
+create trigger entries_autofill_member_id_trg
+  before insert or update on entries
+  for each row execute function entries_autofill_member_id();
+
+create or replace function pays_autofill_member_id() returns trigger as $$
+begin
+  if NEW.member_id is null
+     and NEW.user_id is not null
+     and NEW.company_id is not null then
+    select id into NEW.member_id
+    from company_members
+    where user_id = NEW.user_id and company_id = NEW.company_id
+    limit 1;
+  end if;
+  return NEW;
+end;
+$$ language plpgsql;
+
+create trigger pays_autofill_member_id_trg
+  before insert or update on pays
+  for each row execute function pays_autofill_member_id();

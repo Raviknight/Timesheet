@@ -161,6 +161,33 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### June 16, 2026: 0.3 membership backbone landed in the live DB
+
+Schema-and-docs only, no app behavior change. Two contained chunks:
+
+- **0.2** reconciled `supabase/schema.sql` to the live database (commit
+  9a8ed5c), so the file is now a faithful mirror of production.
+- **0.3** landed the membership backbone in the live DB:
+  - `company_members` gained a synthetic `id uuid` PK, dropped the old
+    composite `(company_id, user_id)` PK, made `user_id` nullable, and added a
+    partial unique index over `(company_id, user_id)` for claimed memberships
+    only (owner-managed rows with null `user_id` are unconstrained). It also
+    gained per-employee columns: `display_name`, `hire_date`, `break_minutes`,
+    `std_seg1_start/end`, `std_seg2_start/end`.
+  - `entries` and `pays` each gained a `member_id uuid` FK to
+    `company_members(id)` with a covering index.
+  - Backfill: 6/6 member rows seeded across all production users (two for the
+    owner across Ferry Machines and Phillips Precision, four for other paying
+    users' workspaces); 442/442 `entries.member_id` and 89/89 `pays.member_id`
+    non-null.
+  - Temporary autofill triggers on `entries` and `pays` keep `member_id`
+    populated for new writes without any app change; scheduled for removal in
+    0.4.
+
+No app behavior change. `storage.js` still writes user_id-only payloads and
+reads still scope by `user_id` and RLS. The cutover to membership-scoped
+storage and the trigger drop are 0.4's job.
+
 ### June 16, 2026: PTO accrual complete
 
 Shipped the full PTO accrual feature across a series of contained, mostly
