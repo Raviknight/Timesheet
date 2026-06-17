@@ -17,7 +17,6 @@ import {
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
 import { ensureBootstrapped } from './data/bootstrap.js';
 import { activeCompany } from './data/activeCompany.js';
-import { HARDCODED_FALLBACK } from './data/standardDay.js';
 
 import { renderTopBar, setSync, setSyncIdle } from './ui/topbar.js';
 import { toast } from './ui/toast.js';
@@ -314,48 +313,6 @@ async function handleSessionExpired() {
   showAuthView();
 }
 
-/**
- * Seed each company's break + Standard Day from the user-level settings that
- * the resolvers used to inherit, so retiring that inherit is output-identical.
- * Mutates state.companies in place. Returns true if anything changed.
- *
- * Idempotent: only fills fields that are still null. Existing companies keep
- * exactly the hours (break) and prefill (Standard Day) they have today; brand
- * new companies are left null on purpose (they resolve to break 30 / blank).
- *
- *   break:  prior effective = settings.breakMinutes (or 0 when unset, matching
- *           the old computeSegmentHours `|| 0` fallback).
- *   std:    prior effective = settings.standard_day, else the hardcoded
- *           fallback. Only seeded when that effective day has at least one
- *           segment set, so a degenerate all-blank user standard day is left
- *           alone (the one case that would otherwise re-seed every load).
- */
-function seedPerCompanyBreakAndStandardDay() {
-  const s = state.settings || {};
-  const effBreak = s.breakMinutes != null ? s.breakMinutes : 0;
-  const effStd = s.standard_day || HARDCODED_FALLBACK;
-  const effStdHasAny = !!effStd && (effStd.seg1Start != null || effStd.seg1End != null
-    || effStd.seg2Start != null || effStd.seg2End != null);
-
-  let changed = false;
-  for (const c of state.companies) {
-    if (c.breakMinutes == null) {
-      c.breakMinutes = effBreak;
-      changed = true;
-    }
-    const stdAllNull = c.stdSeg1Start == null && c.stdSeg1End == null
-      && c.stdSeg2Start == null && c.stdSeg2End == null;
-    if (stdAllNull && effStdHasAny) {
-      c.stdSeg1Start = effStd.seg1Start ?? null;
-      c.stdSeg1End   = effStd.seg1End   ?? null;
-      c.stdSeg2Start = effStd.seg2Start ?? null;
-      c.stdSeg2End   = effStd.seg2End   ?? null;
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 async function loadAll() {
   setSync('syncing', 'loading…');
   const schema    = await Store.get(SK.schema, null);
@@ -382,22 +339,6 @@ async function loadAll() {
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
   state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
-  // One-time migration: copy each company's PRIOR effective break + Standard
-  // Day (which used to inherit from user settings) onto the company itself, so
-  // existing companies keep identical hours and prefill now that the resolvers
-  // no longer inherit. Gated by a persisted flag so it runs exactly ONCE: a
-  // plain fill-nulls-every-load would wrongly re-capture brand-new companies
-  // (which must stay blank → break 30 / blank Standard Day).
-  if (!state.settings.perCompanyBreakStdMigrated) {
-    const seeded = seedPerCompanyBreakAndStandardDay();
-    state.settings.perCompanyBreakStdMigrated = true;
-    // First-run local persists via the trailing saveAll(); otherwise persist
-    // the flag (and any seeded company changes) now.
-    if (!isFirstRun) {
-      await saveKey(SK.settings, state.settings, 'Settings');
-      if (seeded) await saveKey(SK.companies, state.companies, 'Companies');
-    }
-  }
   await loadTimeOffByCompany();
 
   if (entries) {

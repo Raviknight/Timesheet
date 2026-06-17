@@ -87,6 +87,53 @@ export async function getSignedInMemberId(companyId) {
   return data.id;
 }
 
+/** Camel-case a raw company_members per-employee row; hire_date -> startDate. */
+function memberRowToOverlay(row) {
+  return {
+    id: row.id,
+    breakMinutes: row.break_minutes ?? null,
+    stdSeg1Start: row.std_seg1_start ?? null,
+    stdSeg1End: row.std_seg1_end ?? null,
+    stdSeg2Start: row.std_seg2_start ?? null,
+    stdSeg2End: row.std_seg2_end ?? null,
+    startDate: row.hire_date ?? null,
+  };
+}
+
+/**
+ * Load the signed-in user's membership rows for a set of company ids, returned
+ * as a Map keyed by company_id with the per-employee fields camel-cased
+ * ({ id, breakMinutes, stdSeg1Start, stdSeg1End, stdSeg2Start, stdSeg2End,
+ * startDate }). An empty input yields an empty Map. NOT cached: these fields are
+ * mutable on Settings save, so a stale cache would mask writes. Used by the
+ * companies SELECT paths to overlay per-employee fields onto the company
+ * app-shape.
+ */
+export async function getMembersForCompanies(companyIds) {
+  const out = new Map();
+  if (!Array.isArray(companyIds) || companyIds.length === 0) return out;
+  const userId = getSignedInUserId();
+  if (!userId) return out;
+
+  const { data, error } = await supabase
+    .from('company_members')
+    .select('id, company_id, break_minutes, std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end, hire_date')
+    .eq('user_id', userId)
+    .in('company_id', companyIds);
+
+  if (error) {
+    console.warn(
+      `[storage] members lookup failed (user ${idPrefix(userId)})`,
+      error);
+    return out;
+  }
+
+  for (const row of data || []) {
+    out.set(row.company_id, memberRowToOverlay(row));
+  }
+  return out;
+}
+
 export function getStorageMode() {
   return getSignedInUserId() ? 'remote' : 'local';
 }
@@ -159,7 +206,13 @@ export const LocalStore = {
 // paths so the snake_case ↔ camelCase contract lives in one place.
 // ===========================================================================
 
-export function companyRowToAppShape(row) {
+export function companyRowToAppShape(row, memberOverlay = null) {
+  // Per-employee fields (break, Standard Day, hire date) now live on
+  // company_members. When a member overlay is supplied we read them from there;
+  // otherwise we fall back to the companies columns. The fallback is
+  // transitional and goes away when 0.5c drops the columns. break uses ?? (not
+  // ||) so a deliberately stored 0 survives.
+  const ov = memberOverlay;
   return {
     id: row.id,
     name: row.name,
@@ -174,21 +227,19 @@ export function companyRowToAppShape(row) {
     isActive: row.is_active ?? null,
     otThreshold: row.ot_threshold ?? 40,
     otPeriod: row.ot_period ?? 'weekly',
-    // Per-company break + Standard Day overrides. Each null means "inherit the
-    // user-level setting"; resolution happens in the resolvers, not here. Note
-    // break_minutes uses ?? (not ||) so a deliberately stored 0 survives.
-    breakMinutes: row.break_minutes ?? null,
-    stdSeg1Start: row.std_seg1_start ?? null,
-    stdSeg1End: row.std_seg1_end ?? null,
-    stdSeg2Start: row.std_seg2_start ?? null,
-    stdSeg2End: row.std_seg2_end ?? null,
-    // Per-person cycle anchor for PTO accrual. Carried, not yet used.
-    startDate: row.start_date ?? null,
+    breakMinutes: ov ? ov.breakMinutes : (row.break_minutes ?? null),
+    stdSeg1Start: ov ? ov.stdSeg1Start : (row.std_seg1_start ?? null),
+    stdSeg1End: ov ? ov.stdSeg1End : (row.std_seg1_end ?? null),
+    stdSeg2Start: ov ? ov.stdSeg2Start : (row.std_seg2_start ?? null),
+    stdSeg2End: ov ? ov.stdSeg2End : (row.std_seg2_end ?? null),
+    startDate: ov ? ov.startDate : (row.start_date ?? null),
   };
 }
 
 // Fields the write path is allowed to update on a companies row.
 // (id is the match key; created_at / owner_user_id are not touched.)
+// Per-employee fields (break, Standard Day, hire date) are NOT here; they live
+// on company_members and route through MEMBER_UPDATE_FIELDS below.
 const COMPANY_UPDATE_FIELDS = [
   ['name',                'name'],
   ['payFrequency',        'pay_frequency'],
@@ -202,12 +253,17 @@ const COMPANY_UPDATE_FIELDS = [
   ['isActive',            'is_active'],
   ['otThreshold',         'ot_threshold'],
   ['otPeriod',            'ot_period'],
-  ['breakMinutes',        'break_minutes'],
-  ['stdSeg1Start',        'std_seg1_start'],
-  ['stdSeg1End',          'std_seg1_end'],
-  ['stdSeg2Start',        'std_seg2_start'],
-  ['stdSeg2End',          'std_seg2_end'],
-  ['startDate',           'start_date'],
+];
+
+// Per-employee fields the write path updates on the signed-in user's
+// company_members row. startDate maps to the member's hire_date column.
+const MEMBER_UPDATE_FIELDS = [
+  ['breakMinutes', 'break_minutes'],
+  ['stdSeg1Start', 'std_seg1_start'],
+  ['stdSeg1End',   'std_seg1_end'],
+  ['stdSeg2Start', 'std_seg2_start'],
+  ['stdSeg2End',   'std_seg2_end'],
+  ['startDate',    'hire_date'],
 ];
 
 // Return a snake_case patch of fields that differ between newApp and oldApp,
@@ -216,6 +272,23 @@ export function diffCompanyForUpdate(newApp, oldApp) {
   const patch = {};
   let changed = false;
   for (const [appKey, dbKey] of COMPANY_UPDATE_FIELDS) {
+    const a = newApp[appKey] ?? null;
+    const b = oldApp[appKey] ?? null;
+    if (a !== b) {
+      patch[dbKey] = a;
+      changed = true;
+    }
+  }
+  return changed ? patch : null;
+}
+
+// Return a snake_case patch of the per-employee fields that differ between
+// newApp and oldApp, or null if nothing changed. Same diff pattern as
+// diffCompanyForUpdate, applied against MEMBER_UPDATE_FIELDS.
+export function diffMemberForUpdate(newApp, oldApp) {
+  const patch = {};
+  let changed = false;
+  for (const [appKey, dbKey] of MEMBER_UPDATE_FIELDS) {
     const a = newApp[appKey] ?? null;
     const b = oldApp[appKey] ?? null;
     if (a !== b) {
@@ -618,7 +691,9 @@ export const RemoteStore = {
           console.error('[storage] companies read failed:', error);
           return fallback;
         }
-        const out = (data || []).map(companyRowToAppShape);
+        const rows = data || [];
+        const memberMap = await getMembersForCompanies(rows.map(r => r.id));
+        const out = rows.map(r => companyRowToAppShape(r, memberMap.get(r.id) || null));
         writeCache['ts:companies'] = {
           snapshot: JSON.parse(JSON.stringify(out)),
         };
@@ -1009,20 +1084,43 @@ export const RemoteStore = {
         for (const c of newSnap) {
           const oldRow = oldById[c.id];
           if (!oldRow) continue;  // new company — INSERT path not implemented here
-          const patch = diffCompanyForUpdate(c, oldRow);
-          if (patch) updates.push({ id: c.id, patch });
+          const companyPatch = diffCompanyForUpdate(c, oldRow);
+          const memberPatch = diffMemberForUpdate(c, oldRow);
+          if (companyPatch || memberPatch) {
+            updates.push({ id: c.id, companyPatch, memberPatch });
+          }
         }
 
         if (updates.length === 0) return true;
 
         for (const u of updates) {
-          const { error: updateErr } = await supabase
-            .from('companies')
-            .update(u.patch)
-            .eq('id', u.id);
-          if (updateErr) {
-            console.error('[storage] companies update failed:', updateErr);
-            return false;
+          // Company-config fields go to the companies row.
+          if (u.companyPatch) {
+            const { error: updateErr } = await supabase
+              .from('companies')
+              .update(u.companyPatch)
+              .eq('id', u.id);
+            if (updateErr) {
+              console.error('[storage] companies update failed:', updateErr);
+              return false;
+            }
+          }
+          // Per-employee fields go to the signed-in user's company_members row.
+          if (u.memberPatch) {
+            const memberId = await getSignedInMemberId(u.id);
+            if (!memberId) {
+              console.warn(
+                `[storage] member update skipped: no membership row (company ${idPrefix(u.id)})`);
+            } else {
+              const { error: memberErr } = await supabase
+                .from('company_members')
+                .update(u.memberPatch)
+                .eq('id', memberId);
+              if (memberErr) {
+                console.error('[storage] company_members update failed:', memberErr);
+                return false;
+              }
+            }
           }
         }
 
@@ -1038,8 +1136,11 @@ export const RemoteStore = {
             ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end,' +
             ' start_date'
           );
+        const refreshedRows = refreshed || [];
+        const refreshedMembers = await getMembersForCompanies(refreshedRows.map(r => r.id));
         writeCache['ts:companies'] = {
-          snapshot: JSON.parse(JSON.stringify((refreshed || []).map(companyRowToAppShape))),
+          snapshot: JSON.parse(JSON.stringify(
+            refreshedRows.map(r => companyRowToAppShape(r, refreshedMembers.get(r.id) || null)))),
         };
         return true;
       }

@@ -188,13 +188,9 @@ export function migrateCompanies(companies) {
     isActive:            c.isActive            ?? true,
     otThreshold:         c.otThreshold         ?? 40,
     otPeriod:            c.otPeriod            ?? 'weekly',
-    // Per-company break + Standard Day. Default to null = inherit the
-    // user-level setting (NOT a concrete value), so unset companies behave
-    // exactly as before. break_minutes keeps a stored 0 via ??.
-    breakMinutes:        c.breakMinutes        ?? null,
-    stdSeg1Start:        c.stdSeg1Start        ?? null,
-    stdSeg1End:          c.stdSeg1End          ?? null,
-    stdSeg2Start:        c.stdSeg2Start        ?? null,
-    stdSeg2End:          c.stdSeg2End          ?? null,
+    // Per-employee break, Standard Day, and hire date are no longer defaulted
+    // here: they live on company_members and are overlaid onto the company
+    // app-shape at storage-read time (see companyRowToAppShape). Whatever the
+    // caller already carries on the company object is preserved by the spread.
   }));
 }
