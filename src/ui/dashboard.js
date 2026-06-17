@@ -481,12 +481,13 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     const reservedHours = r.currentCycleReservedHours;
     const availableHours = r.currentCycleAvailableHours;
 
-    // Day counts rounded to whole days for display; available floors so we
-    // never overstate what's left. Hours shown are derived back from the
-    // rounded day counts so the days and hours never disagree on screen.
-    const poolDays = hpd > 0 ? Math.round(poolHours / hpd) : 0;
-    const usedDays = hpd > 0 ? Math.round(usedHours / hpd) : 0;
-    const reservedDays = hpd > 0 ? Math.round(reservedHours / hpd) : 0;
+    // Day counts floor to whole days for display so pool, used, reserved, and
+    // available all agree on the same fractional-day truncation. Hours shown are
+    // derived back from the floored day counts so the days and hours never
+    // disagree on screen.
+    const poolDays = hpd > 0 ? Math.floor(poolHours / hpd) : 0;
+    const usedDays = hpd > 0 ? Math.floor(usedHours / hpd) : 0;
+    const reservedDays = hpd > 0 ? Math.floor(reservedHours / hpd) : 0;
     const availableDays = hpd > 0 ? Math.floor(availableHours / hpd) : 0;
 
     const poolHoursDisplay = poolDays * hpd;
@@ -505,7 +506,7 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
 
     // Pool label shows the carry split only when something carried over.
     const poolLabel = r.currentCycleCarriedInHours > 0
-      ? `pool: ${poolDays} days (${poolHoursDisplay} h) = ${Math.round(r.currentCycleEarnedHours / hpd)} this year + ${Math.round(r.currentCycleCarriedInHours / hpd)} carried`
+      ? `pool: ${poolDays} days (${poolHoursDisplay} h) = ${Math.floor(r.currentCycleEarnedHours / hpd)} this year + ${Math.floor(r.currentCycleCarriedInHours / hpd)} carried`
       : `pool: ${poolDays} days (${poolHoursDisplay} h)`;
 
     html += `<div style="margin-bottom:16px">
@@ -535,7 +536,7 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     // before).
     if (r.currentCycleUnpaidHours > 0) {
       html += `<div class="help" style="margin-top:4px;color:var(--danger)">
-        ${usedHoursDisplay} h paid · ${Math.round(r.currentCycleUnpaidHours / hpd) * hpd} h over pool (unpaid)
+        ${usedHoursDisplay} h paid · ${Math.floor(r.currentCycleUnpaidHours / hpd) * hpd} h over pool (unpaid)
       </div>`;
     }
 
