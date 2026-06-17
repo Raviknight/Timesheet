@@ -17,7 +17,7 @@
 import { computeHoursWorked, computeHoursPaid } from '../src/core/time.js';
 import {
   isOpenSegment, openSegmentIndex, findOpenClock, clockState,
-  clockInToday, clockOut, nowHM,
+  clockInToday, clockOut, nowHM, FORGOTTEN_CLOCK_HOURS,
 } from '../src/core/clock.js';
 
 let pass = 0, fail = 0;
@@ -221,6 +221,61 @@ check('relaxed: two open segments coexist on two dates',
 const stAfter = clockState(orphanEbc, nowToday);
 check('relaxed: follow-up clockState -> Clock out (active = today)',
   stAfter.mode === 'out' && stAfter.open && stAfter.open.date === '2026-06-17');
+
+// ---------------------------------------------------------------------------
+// FORGOTTEN CLOCK-OUT: any open segment older than FORGOTTEN_CLOCK_HOURS (16h)
+// surfaces forgotten=true and forgottenOpen pointing at the OLDEST such open.
+// Threshold is strict ( > 16h ); a normal shift never approaches it.
+// ---------------------------------------------------------------------------
+check('FORGOTTEN_CLOCK_HOURS is 16', FORGOTTEN_CLOCK_HOURS === 16);
+
+// No open clock: not forgotten. (csNone holds only a closed segment.)
+const fgNone = clockState(csNone, nowToday);
+check('forgotten: no open -> forgotten false, forgottenOpen null',
+  fgNone.forgotten === false && fgNone.forgottenOpen === null);
+
+// Today's open clocked in 4h ago: well under threshold, not forgotten.
+const fg4 = { '1': { '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '08:00', clockOut: null, breakTaken: false }] } } };
+const st4 = clockState(fg4, new Date(2026, 5, 17, 12, 0)); // 08:00 -> 12:00 = 4h
+check('forgotten: today open 4h ago -> not forgotten',
+  st4.mode === 'out' && st4.forgotten === false && st4.forgottenOpen === null);
+
+// Today's open clocked in 17h ago, still the same calendar day: forgotten.
+const fg17 = { '1': { '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '06:00', clockOut: null, breakTaken: false }] } } };
+const st17 = clockState(fg17, new Date(2026, 5, 17, 23, 0)); // 06:00 -> 23:00 = 17h
+check('forgotten: today open 17h ago (same day) -> forgotten, points at it',
+  st17.mode === 'out' && st17.forgotten === true &&
+  st17.forgottenOpen && st17.forgottenOpen.date === '2026-06-17' && st17.forgottenOpen.clockIn === '06:00');
+
+// Prior-day orphan: well past the threshold, forgotten, and not the active clock.
+const fgOrphan = { '1': { '2026-06-15': { date: '2026-06-15', segments: [{ clockIn: '20:00', clockOut: null, breakTaken: false }] } } };
+const stOrphan = clockState(fgOrphan, new Date(2026, 5, 17, 10, 0)); // ~38h old
+check('forgotten: prior-day orphan -> forgotten, points at orphan, mode in',
+  stOrphan.mode === 'in' && stOrphan.open === null && stOrphan.forgotten === true &&
+  stOrphan.forgottenOpen && stOrphan.forgottenOpen.date === '2026-06-15');
+
+// Multiple opens (prior-day orphan + today's open, both past threshold):
+// forgottenOpen is the OLDEST, i.e. the orphan. Active clock is still today's.
+const fgMulti = {
+  '1': {
+    '2026-06-16': { date: '2026-06-16', segments: [{ clockIn: '06:00', clockOut: null, breakTaken: false }] }, // ~41h at now
+    '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '06:00', clockOut: null, breakTaken: false }] }, // 17h at now
+  },
+};
+const stMulti = clockState(fgMulti, new Date(2026, 5, 17, 23, 0));
+check('forgotten: multiple opens -> active is today, forgottenOpen is oldest (orphan)',
+  stMulti.mode === 'out' && stMulti.open.date === '2026-06-17' &&
+  stMulti.forgotten === true && stMulti.forgottenOpen.date === '2026-06-16');
+
+// Threshold boundary on a same-day open clocked in at midnight. Strict > 16h:
+// 16h - 1s and exactly 16h stay not forgotten; 16h + 1s flips to forgotten.
+const fgBoundary = { '1': { '2026-06-17': { date: '2026-06-17', segments: [{ clockIn: '00:00', clockOut: null, breakTaken: false }] } } };
+check('forgotten: 16h - 1s -> not forgotten',
+  clockState(fgBoundary, new Date(2026, 5, 17, 15, 59, 59)).forgotten === false);
+check('forgotten: exactly 16h -> not forgotten (strict >)',
+  clockState(fgBoundary, new Date(2026, 5, 17, 16, 0, 0)).forgotten === false);
+check('forgotten: 16h + 1s -> forgotten',
+  clockState(fgBoundary, new Date(2026, 5, 17, 16, 0, 1)).forgotten === true);
 
 console.log(`\n${fail === 0 ? 'All clock self-tests passed.' : fail + ' FAILED'}`);
 process.exit(fail === 0 ? 0 : 1);

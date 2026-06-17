@@ -17,7 +17,16 @@
  * clock-in is allowed without first closing it.
  */
 
-import { fmtDate, pad, segmentQualifiesForBreak } from './time.js';
+import { fmtDate, pad, parseDate, segmentQualifiesForBreak } from './time.js';
+
+/**
+ * Hours an open clock may run before it reads as a forgotten clock-out. Single
+ * source of truth for the threshold; the dashboard surfaces a fix button past
+ * it and clockState reports it. A normal shift never approaches 16h, so any
+ * open clock older than this is almost certainly a missed clock-out (including
+ * every prior-day orphan, which is by definition more than a day old).
+ */
+export const FORGOTTEN_CLOCK_HOURS = 16;
 
 /** True when a segment has been clocked into but not yet out. */
 export function isOpenSegment(seg) {
@@ -53,6 +62,18 @@ export function findOpenClock(entriesByCompany) {
 }
 
 /**
+ * Age in hours of an open segment, measured from its clock-in timestamp (the
+ * entry's date plus the segment's "HH:MM") to `now`. Reuses parseDate's local
+ * date convention so this matches every other date read in the app.
+ */
+function openSegmentAgeHours(date, clockIn, now) {
+  const d = parseDate(date);
+  const [h, m] = String(clockIn || '0:0').split(':').map(Number);
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h || 0, m || 0, 0, 0);
+  return (now.getTime() - start.getTime()) / 3600000;
+}
+
+/**
  * Decide what the dashboard clock control should offer.
  *
  * The ACTIVE clock is an open segment dated today or later. An open segment
@@ -62,33 +83,51 @@ export function findOpenClock(entriesByCompany) {
  * time; the user closes it later by editing the entry. Under the relaxed
  * per-company-per-day model an orphan and today's open clock may coexist.
  *
+ * Independently of which clock is active, any open segment older than
+ * FORGOTTEN_CLOCK_HOURS is flagged as a forgotten clock-out so the dashboard
+ * can offer a fix. forgottenOpen is the OLDEST such segment (the one most in
+ * need of attention). A prior-day orphan is always past the threshold, so it
+ * surfaces here too, in addition to staying out of the active-clock decision.
+ *
  * @param {Object<string, Object<string, object>>} entriesByCompany
- * @returns {{ mode: 'in' | 'out', open: object|null }}
+ * @returns {{ mode: 'in' | 'out', open: object|null,
+ *             forgotten: boolean, forgottenOpen: object|null }}
  *          mode 'out' carries the active open clock ({companyId, date,
  *          segIndex, clockIn}, matching findOpenClock's shape); mode 'in'
- *          carries open: null.
+ *          carries open: null. forgottenOpen (same shape) is the oldest open
+ *          segment past the threshold, or null when forgotten is false.
  */
 export function clockState(entriesByCompany, now = new Date()) {
-  if (!entriesByCompany) return { mode: 'in', open: null };
+  if (!entriesByCompany) return { mode: 'in', open: null, forgotten: false, forgottenOpen: null };
   const today = todayStr(now);
   // The relaxed model allows a prior-day orphan to coexist with today's open
   // clock, so we cannot just take findOpenClock's first match (that could be
-  // the orphan). The ACTIVE clock is an open segment dated today or later;
-  // prior-day orphans are skipped and left for the user to close.
+  // the orphan). The ACTIVE clock is the first open segment dated today or
+  // later; prior-day orphans are skipped and left for the user to close. We
+  // also scan every open segment for the oldest one past the forgotten
+  // threshold, which is reported alongside regardless of which clock is active.
+  let active = null;
+  let forgottenOpen = null;
+  let oldestAge = -Infinity;
   for (const companyId of Object.keys(entriesByCompany)) {
     const map = entriesByCompany[companyId];
     if (!map) continue;
     for (const date of Object.keys(map)) {
       const segIndex = openSegmentIndex(map[date]);
-      if (segIndex !== -1 && date >= today) {
-        return {
-          mode: 'out',
-          open: { companyId, date, segIndex, clockIn: map[date].segments[segIndex].clockIn },
-        };
+      if (segIndex === -1) continue;
+      const clockIn = map[date].segments[segIndex].clockIn;
+      const rec = { companyId, date, segIndex, clockIn };
+      if (!active && date >= today) active = rec;
+      const age = openSegmentAgeHours(date, clockIn, now);
+      if (age > FORGOTTEN_CLOCK_HOURS && age > oldestAge) {
+        oldestAge = age;
+        forgottenOpen = rec;
       }
     }
   }
-  return { mode: 'in', open: null };
+  return active
+    ? { mode: 'out', open: active, forgotten: !!forgottenOpen, forgottenOpen }
+    : { mode: 'in', open: null, forgotten: !!forgottenOpen, forgottenOpen };
 }
 
 /** Current wall-clock time as "HH:MM" (no rounding; the pay basis rounds). */

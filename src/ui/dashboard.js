@@ -82,8 +82,18 @@ function renderClockControl(state, company) {
   const host = document.getElementById('clockControl');
   if (!host) return;
 
-  const { mode, open } = clockState(state.entriesByCompany);
+  const { mode, open, forgotten, forgottenOpen } = clockState(state.entriesByCompany);
   const companies = Array.isArray(state.companies) ? state.companies : [];
+
+  // A clock left running past FORGOTTEN_CLOCK_HOURS gets a red button alongside
+  // the normal control. It opens the offending entry so the user can add the
+  // missing clock-out by hand; we never guess an end time or auto-close it.
+  const forgottenBtn = forgotten
+    ? `<button type="button" id="clockForgottenBtn" class="btn btn-danger">Forgotten clockout</button>`
+    : '';
+  const wireForgotten = () => {
+    if (forgotten) host.querySelector('#clockForgottenBtn').onclick = () => doFixForgotten(state, forgottenOpen);
+  };
 
   if (mode === 'out') {
     const oc = companies.find(c => String(c.id ?? '') === String(open.companyId));
@@ -95,9 +105,13 @@ function renderClockControl(state, company) {
       <div class="row" style="justify-content:space-between;align-items:center">
         <span>Clocked in since <strong>${escapeHtml(open.clockIn)}</strong>
           <span class="muted">${escapeHtml(open.date)}${where}</span></span>
-        <button type="button" id="clockOutBtn" class="btn btn-primary">Clock out</button>
+        <div class="row" style="gap:8px">
+          ${forgottenBtn}
+          <button type="button" id="clockOutBtn" class="btn btn-primary">Clock out</button>
+        </div>
       </div>`;
     host.querySelector('#clockOutBtn').onclick = () => doClockOut(state, open);
+    wireForgotten();
     return;
   }
 
@@ -105,9 +119,23 @@ function renderClockControl(state, company) {
     <h3 class="card-title">Clock</h3>
     <div class="row" style="justify-content:space-between;align-items:center">
       <span class="muted">Not clocked in</span>
-      <button type="button" id="clockInBtn" class="btn btn-primary">Clock in</button>
+      <div class="row" style="gap:8px">
+        ${forgottenBtn}
+        <button type="button" id="clockInBtn" class="btn btn-primary">Clock in</button>
+      </div>
     </div>`;
   host.querySelector('#clockInBtn').onclick = () => doClockIn(state, company);
+  wireForgotten();
+}
+
+/**
+ * Open the entry editor on the segment that has been left clocked in past the
+ * forgotten threshold, so the user can fill in the missing clock-out. We do not
+ * auto-close it: no end time is guessed, the correction is the user's.
+ */
+function doFixForgotten(state, forgottenOpen) {
+  if (!forgottenOpen) return;
+  openEntryModal(forgottenOpen.date, state, { source: 'clock', companyId: forgottenOpen.companyId });
 }
 
 async function doClockIn(state, company) {
