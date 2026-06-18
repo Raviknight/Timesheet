@@ -807,14 +807,20 @@ export const RemoteStore = {
           return false;
         }
         // value is the app-shape profile object
+        const payload = {
+          user_id: userId,
+          name: value.name,
+          role: value.role,
+        };
+        // Guard against clobbering bootstrap's active_company_id when
+        // state.profile fell back to DEFAULT_PROFILE due to a swallowed read
+        // error: only write active_company_id when we actually have one.
+        if (value.companyId !== null && value.companyId !== undefined) {
+          payload.active_company_id = value.companyId;
+        }
         const { error } = await supabase
           .from('profiles')
-          .upsert({
-            user_id: userId,
-            name: value.name,
-            role: value.role,
-            active_company_id: value.companyId,
-          }, { onConflict: 'user_id' });
+          .upsert(payload, { onConflict: 'user_id' });
         if (error) {
           console.error('[storage] profile write failed:', error);
           return false;

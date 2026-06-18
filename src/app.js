@@ -31,6 +31,7 @@ import { initPayModal } from './modals/payModal.js';
 
 import { onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
+import { supabase } from './data/supabase.js';
 
 // Captured at boot. True if the app started with a Supabase
 // session. Used to detect mid-session token loss (e.g., user
@@ -384,6 +385,56 @@ async function init() {
   // when ready.
 }
 
+/**
+ * Recovery path for the clobber bug: a swallowed profile read error used to let
+ * state.profile fall back to DEFAULT_PROFILE (companyId null), and the old
+ * ungated upsert then wrote that null back over a real active_company_id (the
+ * jbabilonia5 shape, patched manually). With the storage gate in place new
+ * writes can no longer clobber; this self-heals users already stuck null.
+ *
+ * Runs at most once per boot, after loadAll has populated state. If the profile
+ * has no companyId but companies exist, pick the deterministically lowest
+ * company id, write it straight to the profiles row (bypassing the gated upsert
+ * so the intent is explicit), and update in-memory state so the rest of boot
+ * sees the healed value. If there are no companies we do not heal: the existing
+ * bootApp error path surfaces the deeper bootstrap failure.
+ */
+async function healActiveCompanyId(userId) {
+  const hasCompanyId = state.profile
+    && state.profile.companyId !== null
+    && state.profile.companyId !== undefined;
+  if (!state.profile || hasCompanyId) return;
+  if (!Array.isArray(state.companies) || state.companies.length === 0) return;
+
+  const healedId = state.companies
+    .map(c => c.id)
+    .filter(id => id !== null && id !== undefined)
+    .map(String)
+    .sort()[0];
+  if (!healedId) return;
+
+  const prefix = String(healedId).slice(0, 8);
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ active_company_id: healedId })
+      .eq('user_id', userId);
+    if (error) {
+      console.warn('[boot] active_company_id heal write failed for user '
+        + String(userId).slice(0, 8) + ':', error);
+      return;
+    }
+  } catch (e) {
+    console.warn('[boot] active_company_id heal write threw for user '
+      + String(userId).slice(0, 8) + ':', e);
+    return;
+  }
+
+  state.profile.companyId = healedId;
+  console.warn('[boot] active_company_id was null on load, healed to company '
+    + prefix);
+}
+
 async function bootApp(session) {
   bootedRemote = true;
   try {
@@ -394,6 +445,7 @@ async function bootApp(session) {
     return;
   }
   await loadAll();
+  await healActiveCompanyId(session.user.id);
   renderTopBar(state.profile);
   updateSignOutVisibility(true);
   wireTabs(state);
