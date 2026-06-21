@@ -79,10 +79,14 @@ export function initEntryModal(state, onAfterSave) {
       const date = document.getElementById('eDate').value || fmtDate(new Date());
       modalSegments = defaultSegmentsForDate(date);
     }
-    updateStatusVisibility();
+    updateTimeOffRowsVisibility();
     renderSegments();
     updateComputedHours();
   });
+
+  // Duration (full/half day) change: only affects the implied time-off hours,
+  // so refresh the live preview. No segment changes.
+  document.getElementById('eDuration').addEventListener('change', updateComputedHours);
 
   // Company change: the per-company break can differ, so refresh the live
   // segment/day hour previews. Does not touch the segments the user entered.
@@ -152,20 +156,26 @@ function loadFormForDate(date) {
     document.getElementById('eNotes').value = existing.notes || '';
     // Existing booking status, defaulting approved for legacy time-off rows.
     document.getElementById('eStatus').value = existing.status || 'approved';
+    // A non-null override means a half day was booked; null/absent is full.
+    document.getElementById('eDuration').value =
+      (existing.hoursOverride != null) ? 'half' : 'full';
   } else {
     modalSegments = defaultSegmentsForDate(date);
     document.getElementById('eTimeOff').value = '';
     document.getElementById('eNotes').value = '';
     document.getElementById('eStatus').value = 'approved';
+    document.getElementById('eDuration').value = 'full';
   }
-  updateStatusVisibility();
+  updateTimeOffRowsVisibility();
 }
 
-/** Show the status toggle only when a time-off type is selected. */
-function updateStatusVisibility() {
+/** Show the status and duration rows only when a time-off type is selected. */
+function updateTimeOffRowsVisibility() {
   const hasTimeOff = !!document.getElementById('eTimeOff').value;
-  const row = document.getElementById('eStatusRow');
-  if (row) row.style.display = hasTimeOff ? '' : 'none';
+  const statusRow = document.getElementById('eStatusRow');
+  if (statusRow) statusRow.style.display = hasTimeOff ? '' : 'none';
+  const durationRow = document.getElementById('eDurationRow');
+  if (durationRow) durationRow.style.display = hasTimeOff ? '' : 'none';
 }
 
 export function openEntryModal(date, state, context = {}) {
@@ -396,9 +406,27 @@ function updateComputedHours() {
     timeOff: document.getElementById('eTimeOff').value || null,
     // Tag with the picked company so break resolves per that company.
     companyId: document.getElementById('eCompany')?.value || null,
+    // Half-day override: half the selected type's per-day hours, else null.
+    // Without this the preview would ignore the duration toggle entirely.
+    hoursOverride: computeHoursOverride(),
   };
   document.getElementById('eComputedHours').textContent =
     computeHours(tmp, stateRef.settings, stateRef.timeOffTypes, stateRef.companies).toFixed(2);
+}
+
+/**
+ * The hours_override implied by the current form selections: half the selected
+ * time-off type's per-day hours when Duration is "half", else null. Null when
+ * no time-off code is selected, so the duration select is inert without a code.
+ * Shared by the live preview and the save path so the two cannot drift.
+ */
+function computeHoursOverride() {
+  const code = document.getElementById('eTimeOff').value || null;
+  if (!code) return null;
+  const isHalf = document.getElementById('eDuration').value === 'half';
+  if (!isHalf) return null;
+  const t = stateRef.timeOffTypes.find(x => x.code === code);
+  return t ? (t.hoursPerDay ?? 8) / 2 : null;
 }
 
 async function saveEntry() {
@@ -437,6 +465,11 @@ async function saveEntry() {
     bookedAt = (prior && prior.bookedAt) ? prior.bookedAt : new Date().toISOString();
   }
 
+  // Half-day override: half the type's per-day hours when Duration is "half".
+  // computeHoursOverride already returns null when there is no time-off code,
+  // so a worked entry never carries an override.
+  const hoursOverride = timeOff ? computeHoursOverride() : null;
+
   const entry = {
     date,
     segments: cleanSegs,
@@ -447,6 +480,7 @@ async function saveEntry() {
     companyId: pickedCid,
     status,
     bookedAt,
+    hoursOverride,
   };
 
   // Make sure the target company's set is in memory before we mutate it.

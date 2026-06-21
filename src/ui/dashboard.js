@@ -454,6 +454,16 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap, coverage
   return card;
 }
 
+// Day figures that may be fractional (available, used) show a clean integer
+// when whole and one decimal only when fractional, so a half-day draw is
+// visible (e.g. 10.5) without printing "11.0" for whole values.
+function dayNum(d) {
+  return Number.isInteger(d) ? d : +d.toFixed(1);
+}
+function formatDays(d) {
+  return String(dayNum(d));
+}
+
 function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries, pools = []) {
   const container = document.getElementById('balancesList');
   const entries = Object.values(entriesMap);
@@ -509,19 +519,19 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
     const reservedHours = r.currentCycleReservedHours;
     const availableHours = r.currentCycleAvailableHours;
 
-    // Day counts floor to whole days for display so pool, used, reserved, and
-    // available all agree on the same fractional-day truncation. Hours shown are
-    // derived back from the floored day counts so the days and hours never
-    // disagree on screen.
+    // pool and reserved floor to whole days for display. available and used
+    // show fractional days (one decimal) so a half-day draw is visible. In
+    // every case the hours shown are derived back from the displayed day figure
+    // so the days and hours never disagree on screen (e.g. 10.5 days = 84 h).
     const poolDays = hpd > 0 ? Math.floor(poolHours / hpd) : 0;
-    const usedDays = hpd > 0 ? Math.floor(usedHours / hpd) : 0;
     const reservedDays = hpd > 0 ? Math.floor(reservedHours / hpd) : 0;
-    const availableDays = hpd > 0 ? Math.floor(availableHours / hpd) : 0;
+    const usedDaysFrac = hpd > 0 ? usedHours / hpd : 0;
+    const availableDaysFrac = hpd > 0 ? availableHours / hpd : 0;
 
     const poolHoursDisplay = poolDays * hpd;
-    const usedHoursDisplay = usedDays * hpd;
     const reservedHoursDisplay = reservedDays * hpd;
-    const availableHoursDisplay = availableDays * hpd;
+    const usedHoursDisplay = dayNum(usedDaysFrac) * hpd;
+    const availableHoursDisplay = dayNum(availableDaysFrac) * hpd;
 
     const consumed = usedHours + reservedHours;
     const ratio = poolHours > 0 ? consumed / poolHours : 0;
@@ -548,10 +558,10 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
         <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
       </div>
       <div class="row" style="margin-top:8px;gap:10px;font-size:12px">
-        <span style="color:var(--success)"><strong>${availableDays}</strong> day${availableDays === 1 ? '' : 's'}
+        <span style="color:var(--success)"><strong>${formatDays(availableDaysFrac)}</strong> day${dayNum(availableDaysFrac) === 1 ? '' : 's'}
           <span class="muted">available</span>
           <span class="muted">(${availableHoursDisplay} h)</span></span>
-        <span><strong>${usedDays}</strong> days
+        <span><strong>${formatDays(usedDaysFrac)}</strong> days
           <span class="muted">used</span>
           <span class="muted">(${usedHoursDisplay} h)</span></span>
         <span style="margin-left:auto;color:var(--warn)"><strong>${reservedDays}</strong> days
