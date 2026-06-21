@@ -12,7 +12,7 @@
  *   3. Test with a sample export from the previous version
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Storage keys. Always reference via SK.* — never hard-code strings. */
 export const SK = {
@@ -127,6 +127,9 @@ export function migrateEntry(e) {
     status: e.status ?? null,
     bookedAt: e.bookedAt ?? null,
     createdAt: e.createdAt ?? null,
+    // Half-day override (v4). Carried like the booking fields; null preserves
+    // the legacy "use the type's per-day default" behavior.
+    hoursOverride: e.hoursOverride ?? null,
   };
 }
 

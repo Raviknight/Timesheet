@@ -490,7 +490,7 @@ async function writeTimeOffTypes(value, cacheKey) {
 async function readEntries(companyId, cacheKey, fallback) {
   const { data, error } = await supabase
     .from('entries')
-    .select('date, segments, time_off, notes, company_id, status, booked_at, created_at')
+    .select('date, segments, time_off, notes, company_id, status, booked_at, created_at, hours_override')
     .eq('company_id', companyId);
   if (error) {
     console.error('[storage] entries read failed:', error);
@@ -514,6 +514,9 @@ async function readEntries(companyId, cacheKey, fallback) {
       status: row.status ?? null,
       bookedAt: row.booked_at ?? null,
       createdAt: row.created_at ?? null,
+      // Half-day override: null means "use the type's per-day default", which
+      // is byte-identical to legacy rows that never carried this column.
+      hoursOverride: row.hours_override ?? null,
     };
   }
 
@@ -588,6 +591,7 @@ async function writeEntries(value, cacheKey, userId) {
         notes: e.notes || null,
         status: e.status ?? null,
         booked_at: e.bookedAt ?? null,
+        hours_override: e.hoursOverride ?? null,
         // Stamp member_id directly (cached lookup); the autofill trigger stays
         // as a safety net for any row that arrives with it null.
         member_id: await getSignedInMemberId(rowCompanyId),

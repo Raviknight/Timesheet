@@ -204,16 +204,26 @@ export function computeHoursPaid(entry, settings, timeOffTypes, companies) {
   const segHrs = computeHoursWorked(entry, settings, companies);
   if (!entry.timeOff) return segHrs;
 
-  let timeOffHrs = 8;
+  let baseHrs = 8;
   let additive = false;
   if (Array.isArray(timeOffTypes)) {
     const t = timeOffTypes.find(x => x.code === entry.timeOff);
     if (t) {
-      timeOffHrs = t.hoursPerDay ?? 8;
+      baseHrs = t.hoursPerDay ?? 8;
       additive = !!t.additive;
     }
   }
-  if (additive) return segHrs + timeOffHrs;
+
+  // A half-day override replaces the type's per-day hours as the time-off
+  // portion of the day. When hoursOverride is null this function is
+  // byte-identical to its prior behavior (locked by the Step 6D regression).
+  const hasOverride = entry.hoursOverride != null;
+  const timeOffHrs = hasOverride ? entry.hoursOverride : baseHrs;
+
+  // Additive (HOLIDAY) always sits on top of worked hours. With an override
+  // present on a non-additive type the override hours also sit on top of the
+  // worked segment (a worked half-day still earns its time-off portion).
+  if (additive || hasOverride) return segHrs + timeOffHrs;
   return segHrs > 0 ? segHrs : timeOffHrs;
 }
 

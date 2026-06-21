@@ -145,6 +145,10 @@ create table entries (
   status text
     check (status in ('approved','pending','denied','cancelled')),
   booked_at timestamptz,
+  -- Half-day override (v4): explicit time-off hours for a partial day. Null
+  -- means "use the time-off type's per-day default" (legacy behavior). No
+  -- backfill: existing rows stay null and read byte-identically to today.
+  hours_override numeric(5,2),
   member_id uuid not null references company_members(id) on delete cascade,
   unique (user_id, company_id, date)
 );

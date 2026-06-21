@@ -15,7 +15,7 @@
  */
 
 import { computePoolAccrual } from './accrual.js';
-import { computeHoursPaid } from './time.js';
+import { computeHoursPaid, computeHoursBenefit } from './time.js';
 
 /**
  * Run the accrual engine once per pool-owner group for a company. Mirrors the
@@ -56,7 +56,12 @@ export function computeCompanyPools({ company, timeOffTypes, entries, settings, 
       .map(e => ({
         date: e.date,
         code: e.timeOff,
-        hours: computeHoursPaid(e, settings, types, companies),
+        // Draw the TIME-OFF portion (paid minus worked), not paid-including-
+        // worked. For whole-day entries (no worked segment) benefit == paid, so
+        // this is byte-identical to the prior computeHoursPaid draw. For a
+        // worked half-day with an hours_override, only the override hours draw
+        // the pool; the worked hours never deplete the balance.
+        hours: computeHoursBenefit(e, settings, types, companies),
         status: e.status ?? null,
         bookedAt: e.bookedAt ?? null,
         createdAt: e.createdAt ?? null,

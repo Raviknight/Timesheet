@@ -84,6 +84,82 @@ const mixed = run(11, [
 ]);
 mixed.rows.forEach(r => check(`  ${r.code} ${r.date} new==old`, r.new, r.old));
 
+// ---------------------------------------------------------------------------
+// Half-day override (chunk half-day-a). hours_override sets an explicit
+// time-off portion for a partial day. computeHoursPaid lays it on top of any
+// worked segment; the pool draws only that time-off portion (paid minus
+// worked), never the worked hours.
+// ---------------------------------------------------------------------------
+function poolRun(types, entries) {
+  const pools = computeCompanyPools({ company, timeOffTypes: types, entries, settings, companies, asOf });
+  const coverage = coverageFromPools(pools);
+  // PTO-owner pool is the only pool in these fixtures.
+  return { result: pools[0].result, coverage };
+}
+
+// A. Half-day pool draw: one PTO entry, 4h override, 11-day (88h) pool.
+console.log('\n== A. half-day PTO override (4h, 11d pool) ==');
+{
+  const types = typesFor(11);
+  const e = pto('2026-02-03', { hoursOverride: 4 });
+  const { result, coverage } = poolRun(types, [e]);
+  const paid = paidHoursWithCoverage(e, settings, types, companies, coverage);
+  check('A: paidHoursWithCoverage', paid, 4);
+  check('A: pool draw', result.usedHours, 4);
+  check('A: remaining pool', result.availableHours, 11 * 8 - 4);
+  eq('A: day covered', coverage['2026-02-03'] && coverage['2026-02-03'].covered === true);
+}
+
+// B. Half-day with sharedPoolWith: a 4h SICK entry sharing PTO's pool plus a
+// separate full 8h PTO entry -> combined 12h draw from the merged pool.
+console.log('\n== B. half-day SICK sharing PTO pool + full PTO ==');
+{
+  const types = [
+    { code: 'PTO',  label: 'PTO',  poolDays: 11, hoursPerDay: 8, countsAgainstPool: true, additive: false },
+    { code: 'SICK', label: 'Sick', poolDays: 0,  hoursPerDay: 8, countsAgainstPool: true, additive: false, sharedPoolWith: 'PTO' },
+  ];
+  const eSick = { date: '2026-02-03', segments: [], timeOff: 'SICK', hoursOverride: 4 };
+  const ePto  = pto('2026-02-10');
+  const { result, coverage } = poolRun(types, [eSick, ePto]);
+  check('B: combined draw from merged pool', result.usedHours, 12);
+  eq('B: SICK half-day covered', coverage['2026-02-03'] && coverage['2026-02-03'].covered === true);
+  eq('B: full PTO day covered', coverage['2026-02-10'] && coverage['2026-02-10'].covered === true);
+}
+
+// C. Half-day + worked segment same date: 4h worked AND 4h override on a
+// non-additive PTO day. Paid = 8 (4 worked + 4 PTO); the pool draws only the
+// 4h override (the worked hours never deplete the balance).
+console.log('\n== C. half-day override + worked segment same date ==');
+{
+  const types = typesFor(11);
+  const e = {
+    date: '2026-02-03',
+    segments: [{ clockIn: '08:00', clockOut: '12:00', breakTaken: false }],
+    timeOff: 'PTO',
+    hoursOverride: 4,
+  };
+  const { result, coverage } = poolRun(types, [e]);
+  const paid = paidHoursWithCoverage(e, settings, types, companies, coverage);
+  check('C: paidHoursWithCoverage (4 worked + 4 PTO)', paid, 8);
+  check('C: pool draws only the override', result.usedHours, 4);
+  check('C: remaining pool', result.availableHours, 11 * 8 - 4);
+}
+
+// D. Regression lock: clone the within-budget whole-day PTO case with explicit
+// hoursOverride: null and assert it is byte-identical to the override-absent run.
+console.log('\n== D. regression lock (hoursOverride: null whole-day PTO) ==');
+{
+  const entries = [
+    pto('2026-02-03', { hoursOverride: null }),
+    pto('2026-03-10', { hoursOverride: null }),
+    pto('2026-04-21', { hoursOverride: null }),
+  ];
+  const d = run(11, entries);
+  d.rows.forEach(r => check(`  ${r.date} new==old`, r.new, r.old));
+  check('D: OLD total (byte-identical)', d.oldSum, 24);
+  check('D: NEW total (byte-identical)', d.newSum, 24);
+}
+
 console.log('\n---- report numbers ----');
 console.log(`within-budget: OLD ${within.oldSum}h  ->  NEW ${within.newSum}h  (must match)`);
 console.log(`over-budget:   OLD ${over.oldSum}h  ->  NEW ${over.newSum}h  (intended 16h drop)`);
