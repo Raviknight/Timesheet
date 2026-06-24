@@ -180,6 +180,10 @@ create table estimator_settings (
     check (filing_status in ('single','mfj','hoh')),
   pay_periods_per_year integer default 26
     check (pay_periods_per_year in (52,26,24,12)),
+  pay_type text default 'salary'
+    check (pay_type in ('salary','hourly','multiple')),
+  salary_mode text default 'period'
+    check (salary_mode in ('period','annual')),
   locality jsonb not null default '{}',
   deductions jsonb not null default '[]',
   state_effective_rate numeric,     -- used when state is in user-rate mode

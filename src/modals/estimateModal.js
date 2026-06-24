@@ -3,8 +3,13 @@
  *
  * Paycheck estimator modal. Personal-planning tool. Computes federal + FICA +
  * state + local + payroll add-ons from a per-paycheck gross plus the user's
- * deductions. Never stores the gross or the hourly rate; only the structural
- * inputs (state, filing status, locality, deduction template) persist.
+ * deductions. Never stores the gross, hourly rate, hours, or any other dollar
+ * amount; only structural inputs persist.
+ *
+ * Pay types:
+ *   - 'salary'   : one gross amount, marked as either per-period or annual
+ *   - 'hourly'   : regular hrs + OT hrs (1.5x) + double-time hrs (2x) at a rate
+ *   - 'multiple' : list of salary or hourly income sources, summed
  *
  * The result is clearly labeled an estimate. This is NOT actual payroll
  * withholding and must not be relied on for tax filing.
@@ -22,9 +27,6 @@ import {
 } from '../data/storage.js';
 import { toast } from '../ui/toast.js';
 
-// In-memory working state for the open modal session. Hydrated from persisted
-// settings on open; written back to persistence on Save settings / Save to
-// history.
 let work = null;
 let lastResult = null;
 
@@ -47,54 +49,115 @@ const DEDUCTION_TYPES = [
   { value: 'post-tax',           label: 'Roth or other post-tax' },
 ];
 
+// Preset menu next to "+ Blank row". Picking a preset adds a new row pre-filled
+// with name + tax-treatment type, leaving the amount for the user to fill.
+const DEDUCTION_PRESETS = {
+  health:     { name: 'Health insurance premium',   type: 'pre-tax-section125' },
+  dental:     { name: 'Dental insurance premium',   type: 'pre-tax-section125' },
+  vision:     { name: 'Vision insurance premium',   type: 'pre-tax-section125' },
+  hsa:        { name: 'HSA contribution',           type: 'pre-tax-section125' },
+  fsa:        { name: 'FSA contribution',           type: 'pre-tax-section125' },
+  '401k':     { name: '401(k) contribution',        type: 'pre-tax-401k' },
+  '403b':     { name: '403(b) contribution',        type: 'pre-tax-401k' },
+  roth401k:   { name: 'Roth 401(k) contribution',   type: 'post-tax' },
+  life:       { name: 'Life insurance (over $50K)', type: 'post-tax' },
+  disability: { name: 'Disability insurance',       type: 'post-tax' },
+};
+
 export function initEstimateModal() {
   document.getElementById('btnCloseEstimate').onclick    = closeEstimateModal;
   document.getElementById('btnSaveEstimateTemplate').onclick = onSaveTemplate;
   document.getElementById('btnSaveEstimateHistory').onclick  = onSaveHistory;
-  document.getElementById('btnAddDeduction').onclick     = onAddDeduction;
+  document.getElementById('btnAddDeduction').onclick     = onAddBlankDeduction;
+  document.getElementById('btnAddSource').onclick        = onAddSource;
   document.getElementById('btnViewEstimateHistory').onclick  = onToggleHistory;
 
   document.getElementById('estimateModal').onclick = (e) => {
     if (e.target.id === 'estimateModal') closeEstimateModal();
   };
 
-  // Top-level field listeners: any change recomputes.
-  const recomputeOnChange = (id, prop, transform = (v) => v) => {
-    document.getElementById(id).addEventListener('input', (ev) => {
-      work[prop] = transform(ev.target.value);
-      if (prop === 'state' || prop === 'filingStatus') updateLocalityVisibility();
-      recompute();
-    });
-  };
-
-  recomputeOnChange('estGross',     'grossPerPeriod', v => parseFloat(v) || 0);
-  recomputeOnChange('estFrequency', 'payPeriodsPerYear', v => parseInt(v, 10) || 26);
-  recomputeOnChange('estState',     'state', v => v || null);
-  recomputeOnChange('estFiling',    'filingStatus');
-  recomputeOnChange('estStateRate', 'stateEffectiveRate', v => {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n / 100 : null;   // percent in UI, decimal in engine
+  // Pay-type and salary-mode toggles drive UI visibility AND recompute.
+  document.getElementById('estPayType').addEventListener('change', (ev) => {
+    work.payType = ev.target.value;
+    updatePayTypeVisibility();
+    recompute();
+  });
+  document.getElementById('estSalaryMode').addEventListener('change', (ev) => {
+    work.salaryMode = ev.target.value;
+    recompute();
   });
 
-  // Locality inputs reuse a single dispatcher.
+  // Salary / hourly numeric inputs — never persisted, transient only.
+  numericInput('estSalaryAmount', 'salaryAmount');
+  numericInput('estHourlyRate',   'hourlyRate');
+  numericInput('estRegHours',     'regHours');
+  numericInput('estOtHours',      'otHours');
+  numericInput('estDtHours',      'dtHours');
+
+  // Top-level fields that DO persist on save.
+  document.getElementById('estFrequency').addEventListener('input', (ev) => {
+    work.payPeriodsPerYear = parseInt(ev.target.value, 10) || 26;
+    recompute();
+  });
+  document.getElementById('estState').addEventListener('input', (ev) => {
+    work.state = ev.target.value || null;
+    updateLocalityVisibility();
+    recompute();
+  });
+  document.getElementById('estFiling').addEventListener('input', (ev) => {
+    work.filingStatus = ev.target.value;
+    updateLocalityVisibility();
+    recompute();
+  });
+  document.getElementById('estStateRate').addEventListener('input', (ev) => {
+    const n = parseFloat(ev.target.value);
+    work.stateEffectiveRate = Number.isFinite(n) ? n / 100 : null;
+    recompute();
+  });
+
+  // Locality + deductions + sources use event delegation.
   document.getElementById('estLocalityBody').addEventListener('input', onLocalityInput);
   document.getElementById('estLocalityBody').addEventListener('change', onLocalityInput);
 
-  // Deduction rows use event delegation.
   document.getElementById('estDeductionsList').addEventListener('input', onDeductionInput);
   document.getElementById('estDeductionsList').addEventListener('change', onDeductionInput);
   document.getElementById('estDeductionsList').addEventListener('click', onDeductionClick);
+  document.getElementById('estDeductionPreset').addEventListener('change', onPresetPick);
+
+  document.getElementById('estSourcesList').addEventListener('input', onSourceInput);
+  document.getElementById('estSourcesList').addEventListener('change', onSourceInput);
+  document.getElementById('estSourcesList').addEventListener('click', onSourceClick);
+}
+
+// Helper: bind a numeric input to a work.* numeric field with recompute.
+function numericInput(elId, workKey) {
+  document.getElementById(elId).addEventListener('input', (ev) => {
+    work[workKey] = parseFloat(ev.target.value) || 0;
+    recompute();
+  });
 }
 
 export async function openEstimateModal() {
   const persisted = await getEstimatorSettings();
   work = {
-    grossPerPeriod: 0,         // never persisted
-    payPeriodsPerYear: persisted.payPeriodsPerYear || 26,
-    state: persisted.state || null,
-    filingStatus: persisted.filingStatus || 'single',
-    locality: { ...(persisted.locality || {}) },
-    deductions: Array.isArray(persisted.deductions) ? [...persisted.deductions] : [],
+    // Pay-type config: persisted
+    payType:    persisted.payType || 'salary',
+    salaryMode: persisted.salaryMode || 'period',
+
+    // Numeric income inputs: never persisted
+    salaryAmount: 0,
+    hourlyRate: 0,
+    regHours: 0,
+    otHours: 0,
+    dtHours: 0,
+    sources: [],
+
+    // Top-level config (persisted via settings)
+    payPeriodsPerYear:  persisted.payPeriodsPerYear || 26,
+    state:              persisted.state || null,
+    filingStatus:       persisted.filingStatus || 'single',
+    locality:           { ...(persisted.locality || {}) },
+    deductions:         Array.isArray(persisted.deductions) ? [...persisted.deductions] : [],
     stateEffectiveRate: persisted.stateEffectiveRate ?? null,
   };
 
@@ -103,13 +166,14 @@ export async function openEstimateModal() {
   fillFilingOptions();
   populateFromWork();
   renderDeductions();
+  renderSources();
+  updatePayTypeVisibility();
   updateLocalityVisibility();
-  // Hide history panel by default on open.
+
   document.getElementById('estimateHistoryPanel').style.display = 'none';
   document.getElementById('btnViewEstimateHistory').textContent = 'Show history';
 
   recompute();
-
   document.getElementById('estimateModal').classList.add('show');
 }
 
@@ -138,21 +202,200 @@ function fillStateOptions() {
 }
 
 function populateFromWork() {
-  document.getElementById('estGross').value     = work.grossPerPeriod || '';
-  document.getElementById('estFrequency').value = String(work.payPeriodsPerYear);
-  document.getElementById('estState').value     = work.state || '';
-  document.getElementById('estFiling').value    = work.filingStatus;
-  document.getElementById('estStateRate').value = (work.stateEffectiveRate != null)
+  document.getElementById('estPayType').value    = work.payType;
+  document.getElementById('estSalaryMode').value = work.salaryMode;
+  document.getElementById('estFrequency').value  = String(work.payPeriodsPerYear);
+  document.getElementById('estState').value      = work.state || '';
+  document.getElementById('estFiling').value     = work.filingStatus;
+  document.getElementById('estStateRate').value  = (work.stateEffectiveRate != null)
     ? (work.stateEffectiveRate * 100).toString()
     : '';
+  // Numeric income fields stay blank on open (never persisted).
+  document.getElementById('estSalaryAmount').value = '';
+  document.getElementById('estHourlyRate').value   = '';
+  document.getElementById('estRegHours').value     = '';
+  document.getElementById('estOtHours').value      = '';
+  document.getElementById('estDtHours').value      = '';
 }
+
+// =====================================================================
+// Pay-type visibility: show only the input block for the active pay type.
+// =====================================================================
+
+function updatePayTypeVisibility() {
+  document.getElementById('estSalaryRow').style.display    = work.payType === 'salary'   ? '' : 'none';
+  document.getElementById('estHourlyBlock').style.display  = work.payType === 'hourly'   ? '' : 'none';
+  document.getElementById('estSourcesBlock').style.display = work.payType === 'multiple' ? '' : 'none';
+}
+
+// =====================================================================
+// Gross derivation: convert the pay-type-specific inputs to a per-period
+// gross. This is the only place the inputs get combined; the engine itself
+// always takes a per-period gross.
+// =====================================================================
+
+function computePerPeriodGross() {
+  if (work.payType === 'salary') {
+    const amt = work.salaryAmount || 0;
+    return work.salaryMode === 'annual' ? (amt / work.payPeriodsPerYear) : amt;
+  }
+  if (work.payType === 'hourly') {
+    return hourlyGross(work.hourlyRate, work.regHours, work.otHours, work.dtHours);
+  }
+  if (work.payType === 'multiple') {
+    return work.sources.reduce((sum, src) => sum + sourceGross(src), 0);
+  }
+  return 0;
+}
+
+function hourlyGross(rate, reg, ot, dt) {
+  const r = rate || 0;
+  return (reg || 0) * r + (ot || 0) * r * 1.5 + (dt || 0) * r * 2;
+}
+
+function sourceGross(src) {
+  if (!src) return 0;
+  if (src.type === 'hourly') {
+    return hourlyGross(src.rate, src.regHours, src.otHours, src.dtHours);
+  }
+  // salary
+  const amt = src.amount || 0;
+  return src.mode === 'annual' ? (amt / work.payPeriodsPerYear) : amt;
+}
+
+// =====================================================================
+// Income sources (multi-source pay type)
+// =====================================================================
+
+function onAddSource() {
+  work.sources.push({
+    id: 'src-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+    label: '',
+    type: 'salary',
+    mode: 'period',
+    amount: 0,
+    rate: 0,
+    regHours: 0,
+    otHours: 0,
+    dtHours: 0,
+  });
+  renderSources();
+  recompute();
+}
+
+function renderSources() {
+  const list = document.getElementById('estSourcesList');
+  if (!work.sources.length) {
+    list.innerHTML = '<div class="muted" style="font-size:13px;padding:4px 0">No sources yet. Add one per job/company.</div>';
+    document.getElementById('estSourcesTotal').textContent = '';
+    return;
+  }
+  let html = '';
+  for (const src of work.sources) {
+    const sid = escapeHtml(src.id);
+    html += `
+      <div class="card" data-sid="${sid}" style="padding:8px;margin-bottom:6px;background:var(--surface-2)">
+        <div class="row" style="align-items:flex-end;gap:6px">
+          <div class="grow"><label style="font-size:12px">Label (optional)</label>
+            <input type="text" data-fld="label" value="${escapeHtml(src.label||'')}" placeholder="e.g. Ferry Machine"></div>
+          <div style="width:130px"><label style="font-size:12px">Type</label>
+            <select data-fld="type">
+              <option value="salary" ${src.type==='salary'?'selected':''}>Salary</option>
+              <option value="hourly" ${src.type==='hourly'?'selected':''}>Hourly</option>
+            </select></div>
+          <button class="btn btn-sm btn-danger" data-action="remove-source" type="button">Remove</button>
+        </div>
+        ${src.type === 'salary' ? renderSourceSalary(src) : renderSourceHourly(src)}
+        <div class="help" style="margin-top:4px;color:var(--text-2)">
+          This source: ${formatMoneyDecimal(sourceGross(src))} per period
+        </div>
+      </div>
+    `;
+  }
+  list.innerHTML = html;
+  const total = work.sources.reduce((s, src) => s + sourceGross(src), 0);
+  document.getElementById('estSourcesTotal').textContent =
+    `Combined per-period gross: ${formatMoneyDecimal(total)}`;
+}
+
+function renderSourceSalary(src) {
+  return `
+    <div class="row" style="margin-top:6px">
+      <div class="grow"><label style="font-size:12px">Amount ($)</label>
+        <input type="number" data-fld="amount" step="0.01" min="0" value="${src.amount||''}" placeholder="e.g. 2500 or 65000"></div>
+      <div class="grow"><label style="font-size:12px">Amount is</label>
+        <select data-fld="mode">
+          <option value="period" ${src.mode==='period'?'selected':''}>per pay period</option>
+          <option value="annual" ${src.mode==='annual'?'selected':''}>per year</option>
+        </select></div>
+    </div>
+  `;
+}
+
+function renderSourceHourly(src) {
+  return `
+    <div class="row" style="margin-top:6px">
+      <div class="grow"><label style="font-size:12px">Rate ($/hr)</label>
+        <input type="number" data-fld="rate" step="0.01" min="0" value="${src.rate||''}"></div>
+      <div class="grow"><label style="font-size:12px">Regular hrs</label>
+        <input type="number" data-fld="regHours" step="0.25" min="0" value="${src.regHours||''}"></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="grow"><label style="font-size:12px">OT hrs (1.5x)</label>
+        <input type="number" data-fld="otHours" step="0.25" min="0" value="${src.otHours||''}"></div>
+      <div class="grow"><label style="font-size:12px">DT hrs (2x)</label>
+        <input type="number" data-fld="dtHours" step="0.25" min="0" value="${src.dtHours||''}"></div>
+    </div>
+  `;
+}
+
+function onSourceInput(ev) {
+  const row = ev.target.closest('[data-sid]');
+  if (!row) return;
+  const sid = row.dataset.sid;
+  const src = work.sources.find(s => s.id === sid);
+  if (!src) return;
+  const fld = ev.target.dataset.fld;
+  if (!fld) return;
+  if (fld === 'type') {
+    src.type = ev.target.value;
+    renderSources();   // input shape changed
+  } else if (fld === 'label' || fld === 'mode') {
+    src[fld] = ev.target.value;
+    // Update only the running total without full re-render to keep focus.
+    const total = work.sources.reduce((s, x) => s + sourceGross(x), 0);
+    document.getElementById('estSourcesTotal').textContent =
+      `Combined per-period gross: ${formatMoneyDecimal(total)}`;
+  } else {
+    src[fld] = parseFloat(ev.target.value) || 0;
+    const total = work.sources.reduce((s, x) => s + sourceGross(x), 0);
+    document.getElementById('estSourcesTotal').textContent =
+      `Combined per-period gross: ${formatMoneyDecimal(total)}`;
+    // Per-source readout
+    const help = row.querySelector('.help');
+    if (help) help.textContent = `This source: ${formatMoneyDecimal(sourceGross(src))} per period`;
+  }
+  recompute();
+}
+
+function onSourceClick(ev) {
+  if (ev.target.dataset.action !== 'remove-source') return;
+  const row = ev.target.closest('[data-sid]');
+  if (!row) return;
+  const sid = row.dataset.sid;
+  work.sources = work.sources.filter(s => s.id !== sid);
+  renderSources();
+  recompute();
+}
+
+// =====================================================================
+// Locality (state-conditional)
+// =====================================================================
 
 function updateLocalityVisibility() {
   const state = work.state;
   const userRate = state && requiresUserRate(state, work.filingStatus);
-  // State-rate row visible only when state is in user-rate mode for this filing.
   document.getElementById('estStateRateRow').style.display = userRate ? '' : 'none';
-
   const body = document.getElementById('estLocalityBody');
   body.innerHTML = renderLocalityFor(state);
 }
@@ -237,17 +480,20 @@ function onLocalityInput(ev) {
   } else if (key === 'yonkers' || key === 'philadelphia') {
     work.locality[key] = ev.target.value;
   } else {
-    // numeric percent fields stored as decimal
     const n = parseFloat(ev.target.value);
     work.locality[key] = Number.isFinite(n) ? n / 100 : null;
   }
   recompute();
 }
 
+// =====================================================================
+// Deductions
+// =====================================================================
+
 function renderDeductions() {
   const list = document.getElementById('estDeductionsList');
   if (!work.deductions.length) {
-    list.innerHTML = '<div class="muted" style="font-size:13px;padding:4px 0">No deductions yet. Add 401(k), HSA, health premium, etc.</div>';
+    list.innerHTML = '<div class="muted" style="font-size:13px;padding:4px 0">No deductions yet. Use the quick-add menu or "+ Blank row".</div>';
     return;
   }
   let html = '';
@@ -257,8 +503,8 @@ function renderDeductions() {
       <div class="row" data-idx="${i}" style="align-items:flex-end;gap:6px;margin-bottom:6px">
         <div class="grow"><label style="font-size:12px">Name</label>
           <input type="text" data-fld="name" value="${escapeHtml(d.name||'')}" placeholder="e.g. 401(k)"></div>
-        <div style="width:110px"><label style="font-size:12px">Per period</label>
-          <input type="number" data-fld="amountPerPeriod" step="0.01" min="0" value="${d.amountPerPeriod||0}"></div>
+        <div style="width:110px"><label style="font-size:12px">Per period ($)</label>
+          <input type="number" data-fld="amountPerPeriod" step="0.01" min="0" value="${d.amountPerPeriod||''}"></div>
         <div style="flex:1.4"><label style="font-size:12px">Type</label>
           <select data-fld="type">
             ${DEDUCTION_TYPES.map(t =>
@@ -271,10 +517,22 @@ function renderDeductions() {
   list.innerHTML = html;
 }
 
-function onAddDeduction() {
+function onAddBlankDeduction() {
   work.deductions.push({ name: '', amountPerPeriod: 0, type: 'pre-tax-401k' });
   renderDeductions();
   recompute();
+}
+
+function onPresetPick(ev) {
+  const key = ev.target.value;
+  if (!key) return;
+  const preset = DEDUCTION_PRESETS[key];
+  if (preset) {
+    work.deductions.push({ name: preset.name, amountPerPeriod: 0, type: preset.type });
+    renderDeductions();
+    recompute();
+  }
+  ev.target.value = '';   // reset back to "+ Quick add ..."
 }
 
 function onDeductionInput(ev) {
@@ -301,8 +559,21 @@ function onDeductionClick(ev) {
   recompute();
 }
 
+// =====================================================================
+// Recompute the breakdown
+// =====================================================================
+
 function recompute() {
   const out = document.getElementById('estResult');
+  const grossHelp = document.getElementById('estHourlyGross');
+  if (grossHelp) {
+    if (work.payType === 'hourly') {
+      const g = computePerPeriodGross();
+      grossHelp.textContent = g > 0 ? `Computed gross this period: ${formatMoneyDecimal(g)}` : '';
+    } else {
+      grossHelp.textContent = '';
+    }
+  }
   try {
     if (!work.state) {
       out.innerHTML = '<div class="muted" style="font-size:13px">Pick a state to see the breakdown.</div>';
@@ -314,8 +585,9 @@ function recompute() {
       lastResult = null;
       return;
     }
+    const gross = computePerPeriodGross();
     const result = estimatePaycheck({
-      grossPerPeriod: work.grossPerPeriod || 0,
+      grossPerPeriod: gross,
       payPeriodsPerYear: work.payPeriodsPerYear,
       state: work.state,
       filingStatus: work.filingStatus,
@@ -332,6 +604,7 @@ function recompute() {
 }
 
 function renderResult(r) {
+  const periods = periodsPerYear(work.payPeriodsPerYear);
   const row = (label, perPeriod, annual, extraClass = '') =>
     `<tr class="${extraClass}">
       <td>${escapeHtml(label)}</td>
@@ -339,7 +612,7 @@ function renderResult(r) {
       <td class="num muted">${formatMoney(annual)}</td>
     </tr>`;
 
-  let html = `
+  return `
     <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:6px">
       <thead>
         <tr style="border-bottom:1px solid var(--border);text-align:left">
@@ -353,8 +626,8 @@ function renderResult(r) {
         ${row('Medicare (1.45%)', -r.medicare, -r.annual.medicare)}
         ${r.additionalMedicare > 0 ? row('Additional Medicare (0.9%)', -r.additionalMedicare, -r.annual.additionalMedicare) : ''}
         ${row('State income tax', -r.stateTax, -r.annual.stateTax)}
-        ${r.payrollAddons.map(a => row(a.name, -a.amount, -a.amount * periodsPerYear(work.payPeriodsPerYear))).join('')}
-        ${r.localTax > 0 ? r.localItems.map(i => row(i.name, -i.amount, -i.amount * periodsPerYear(work.payPeriodsPerYear))).join('') : ''}
+        ${r.payrollAddons.map(a => row(a.name, -a.amount, -a.amount * periods)).join('')}
+        ${r.localTax > 0 ? r.localItems.map(i => row(i.name, -i.amount, -i.amount * periods)).join('') : ''}
         ${r.preTaxDeductions > 0 ? row('Pre-tax deductions', -r.preTaxDeductions, -r.annual.preTaxDeductions) : ''}
         ${r.postTaxDeductions > 0 ? row('Post-tax deductions', -r.postTaxDeductions, -r.annual.postTaxDeductions) : ''}
         <tr style="border-top:2px solid var(--border);font-weight:600">
@@ -369,13 +642,18 @@ function renderResult(r) {
       <span>Marginal federal rate: <strong>${(r.marginalFederalRate * 100).toFixed(0)}%</strong></span>
     </div>
   `;
-  return html;
 }
 
+// =====================================================================
+// Persistence
+// =====================================================================
+
 async function onSaveTemplate() {
-  // Snapshot the persistable fields (state, filing, frequency, locality, deductions, stateRate).
-  // grossPerPeriod is excluded by design.
+  // Persisted fields only: pay type + salary mode + structural defaults.
+  // Dollar amounts, hours, rates, and per-source values are NEVER saved.
   const settings = {
+    payType:    work.payType,
+    salaryMode: work.salaryMode,
     state: work.state,
     filingStatus: work.filingStatus,
     payPeriodsPerYear: work.payPeriodsPerYear,
@@ -390,9 +668,9 @@ async function onSaveTemplate() {
 async function onSaveHistory() {
   if (!lastResult) { toast('Nothing to save yet'); return; }
   const note = prompt('Optional note for this estimate:', '') || null;
-  const inputs = { ...work };
-  // Strip transient/UI-only state out of the snapshot.
-  delete inputs._raw;
+  // Snapshot the full work shape so history rows remain interpretable
+  // even after engine constants change. Includes pay-type-specific inputs.
+  const inputs = JSON.parse(JSON.stringify(work));
   const ok = await appendEstimateHistory({ inputs, result: lastResult, note });
   toast(ok ? 'Saved to history' : 'Save failed');
   if (ok && document.getElementById('estimateHistoryPanel').style.display !== 'none') {

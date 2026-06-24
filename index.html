@@ -339,9 +339,63 @@
         <select id="estFrequency"></select>
       </div>
       <div class="grow">
-        <label>Gross per period ($)</label>
-        <input type="number" id="estGross" step="0.01" min="0" placeholder="e.g. 2500">
+        <label>Pay type</label>
+        <select id="estPayType">
+          <option value="salary">Salary</option>
+          <option value="hourly">Hourly</option>
+          <option value="multiple">Multiple income sources</option>
+        </select>
       </div>
+    </div>
+
+    <!-- Salary inputs -->
+    <div class="row" id="estSalaryRow" style="margin-top:8px;display:none">
+      <div class="grow">
+        <label>Gross salary ($)</label>
+        <input type="number" id="estSalaryAmount" step="0.01" min="0" placeholder="e.g. 2500 or 65000">
+      </div>
+      <div class="grow">
+        <label>Amount is</label>
+        <select id="estSalaryMode">
+          <option value="period">per pay period</option>
+          <option value="annual">per year</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Hourly inputs -->
+    <div id="estHourlyBlock" style="margin-top:8px;display:none">
+      <div class="row">
+        <div class="grow">
+          <label>Hourly rate ($)</label>
+          <input type="number" id="estHourlyRate" step="0.01" min="0" placeholder="e.g. 32.50">
+        </div>
+        <div class="grow">
+          <label>Regular hours</label>
+          <input type="number" id="estRegHours" step="0.25" min="0" placeholder="e.g. 80">
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <div class="grow">
+          <label>OT hours (1.5x)</label>
+          <input type="number" id="estOtHours" step="0.25" min="0" placeholder="0">
+        </div>
+        <div class="grow">
+          <label>Double-time hours (2x)</label>
+          <input type="number" id="estDtHours" step="0.25" min="0" placeholder="0">
+        </div>
+      </div>
+      <div class="help" id="estHourlyGross" style="margin-top:4px"></div>
+    </div>
+
+    <!-- Multiple sources -->
+    <div id="estSourcesBlock" style="margin-top:8px;display:none">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <label style="margin:0">Income sources</label>
+        <button class="btn btn-sm" id="btnAddSource" type="button">+ Add source</button>
+      </div>
+      <div id="estSourcesList" style="margin-top:6px"></div>
+      <div class="help" id="estSourcesTotal" style="margin-top:4px"></div>
     </div>
 
     <div class="row" style="margin-top:8px">
@@ -371,7 +425,22 @@
     <div style="margin-top:12px">
       <div class="row" style="justify-content:space-between;align-items:center">
         <label style="margin:0">Deductions and contributions</label>
-        <button class="btn btn-sm" id="btnAddDeduction" type="button">+ Add</button>
+        <div class="row" style="gap:6px">
+          <select id="estDeductionPreset" style="font-size:13px;padding:2px 6px">
+            <option value="">+ Quick add insurance / 401(k)</option>
+            <option value="health">Health insurance premium</option>
+            <option value="dental">Dental insurance premium</option>
+            <option value="vision">Vision insurance premium</option>
+            <option value="hsa">HSA contribution</option>
+            <option value="fsa">FSA contribution</option>
+            <option value="401k">401(k) contribution</option>
+            <option value="403b">403(b) contribution</option>
+            <option value="roth401k">Roth 401(k)</option>
+            <option value="life">Life insurance (over $50K)</option>
+            <option value="disability">Disability insurance</option>
+          </select>
+          <button class="btn btn-sm" id="btnAddDeduction" type="button">+ Blank row</button>
+        </div>
       </div>
       <div id="estDeductionsList" style="margin-top:6px"></div>
     </div>

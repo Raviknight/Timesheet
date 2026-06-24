@@ -196,19 +196,32 @@ result is clearly labeled an estimate in the UI.
 
 ### Inputs
 
-- Per-period gross (typed each time, never persisted)
+- Pay type: `salary`, `hourly`, or `multiple` (multiple income sources)
+  - **Salary mode**: a gross amount marked as either per-period or annual
+  - **Hourly mode**: regular hours, OT hours (1.5x), double-time hours (2x),
+    hourly rate. Gross derived: `reg*rate + ot*rate*1.5 + dt*rate*2`
+  - **Multiple sources mode**: a list of salary or hourly entries (one per
+    job/company), each contributing to per-period gross. Federal + FICA are
+    computed on the combined total. State tax uses the single state at top
+    level (no per-source state).
 - Pay frequency: weekly (52), biweekly (26), semi-monthly (24), or monthly (12)
 - State: one of 12 jurisdictions (PA, MA, NH, DE, RI, VT, NJ, CT, NY, MD, DC, VA)
 - Filing status: single, married filing jointly, head of household
 - Locality (state-conditional): NYC, Yonkers, Philadelphia, Wilmington, PA local
   EIT rate, MD county rate
-- Deductions list: each row has a name, amount-per-period, and type.
+- Deductions list: each row has a name, amount-per-period, and type. Quick-add
+  presets cover Health/Dental/Vision/HSA/FSA/401k/403b/Roth/Life/Disability.
   Types and their tax treatment:
     - `pre-tax-401k`        reduces federal + state, NOT FICA
     - `pre-tax-section125`  reduces federal + state + FICA (HSA, FSA, premiums)
     - `post-tax`            reduces take-home only
 - State effective rate: only when the state/filing combination is in user-rate
   mode (caller-supplied), see "Coverage gaps" below
+
+**Never persisted:** the gross, the hourly rate, hours, salary amount, or any
+per-source amount. Only the *structure* (pay type, salary mode, state, filing,
+locality, deduction template) persists. Numeric inputs reset each time the
+modal opens.
 
 ### Calculation flow
 

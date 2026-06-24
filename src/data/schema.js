@@ -80,6 +80,8 @@ export const DEFAULT_ESTIMATOR_SETTINGS = {
   state: null,
   filingStatus: 'single',    // 'single' | 'mfj' | 'hoh'
   payPeriodsPerYear: 26,     // 52 | 26 | 24 | 12
+  payType: 'salary',         // 'salary' | 'hourly' | 'multiple'
+  salaryMode: 'period',      // 'period' | 'annual' (used when payType=salary)
   locality: {},
   deductions: [],            // [{ name, amountPerPeriod, type }]
   stateEffectiveRate: null,  // used when the selected state is in user-rate mode

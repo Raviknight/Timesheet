@@ -1217,7 +1217,7 @@ export async function getEstimatorSettings() {
     try {
       const { data, error } = await supabase
         .from('estimator_settings')
-        .select('state, filing_status, pay_periods_per_year, locality, deductions, state_effective_rate')
+        .select('state, filing_status, pay_periods_per_year, pay_type, salary_mode, locality, deductions, state_effective_rate')
         .maybeSingle();
       if (error) {
         console.error('[storage] estimator_settings read failed:', error);
@@ -1228,6 +1228,8 @@ export async function getEstimatorSettings() {
         state: data.state || null,
         filingStatus: data.filing_status || 'single',
         payPeriodsPerYear: data.pay_periods_per_year || 26,
+        payType: data.pay_type || 'salary',
+        salaryMode: data.salary_mode || 'period',
         locality: data.locality || {},
         deductions: Array.isArray(data.deductions) ? data.deductions : [],
         stateEffectiveRate: data.state_effective_rate ?? null,
@@ -1260,6 +1262,8 @@ export async function saveEstimatorSettings(settings) {
           state: s.state || null,
           filing_status: s.filingStatus || 'single',
           pay_periods_per_year: s.payPeriodsPerYear || 26,
+          pay_type: s.payType || 'salary',
+          salary_mode: s.salaryMode || 'period',
           locality: s.locality || {},
           deductions: s.deductions || [],
           state_effective_rate: s.stateEffectiveRate ?? null,
