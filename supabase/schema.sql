@@ -171,3 +171,39 @@ create table pays (
 );
 
 create index pays_member_id_idx on pays (member_id);
+
+-- Estimator settings (v5): per-user persistence for the paycheck estimator.
+-- Hourly rate is NEVER stored here; only structural inputs (state, filing
+-- status, locality, deduction template). The deductions jsonb is a list of
+-- {name, amountPerPeriod, type} where type is one of:
+--   'pre-tax-401k'        reduces federal + state, NOT FICA
+--   'pre-tax-section125'  reduces federal + state + FICA (HSA, FSA, premiums)
+--   'post-tax'            reduces take-home only
+create table estimator_settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  state text,                       -- 2-letter state code (PA, NY, ...)
+  filing_status text default 'single'
+    check (filing_status in ('single','mfj','hoh')),
+  pay_periods_per_year integer default 26
+    check (pay_periods_per_year in (52,26,24,12)),
+  locality jsonb not null default '{}',
+  deductions jsonb not null default '[]',
+  state_effective_rate numeric,     -- used when state is in user-rate mode
+  updated_at timestamptz default now()
+);
+
+-- Estimate history (v5): append-only log of completed estimator runs.
+-- inputs and result are full JSON snapshots so a row stays meaningful even
+-- if the engine constants change later.
+create table estimate_history (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  member_id uuid references company_members(id) on delete set null,
+  created_at timestamptz default now(),
+  inputs jsonb not null,
+  result jsonb not null,
+  note text
+);
+
+create index estimate_history_user_created_idx
+  on estimate_history (user_id, created_at desc);

@@ -12,7 +12,7 @@
  *   3. Test with a sample export from the previous version
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Storage keys. Always reference via SK.* — never hard-code strings. */
 export const SK = {
@@ -23,6 +23,10 @@ export const SK = {
   entries: 'ts:entries',
   pays: 'ts:pays',
   schema: 'ts:schemaVersion',
+  // v5: paycheck estimator persistence. Settings is a single per-user record;
+  // history is an append-only list of estimate runs (last 50 retained locally).
+  estimatorSettings: 'ts:estimatorSettings',
+  estimateHistory: 'ts:estimateHistory',
 };
 
 /**
@@ -57,6 +61,28 @@ export const DEFAULT_SETTINGS = {
   // Calculation rules. Pay-period and OT config now live per-company
   // (see migrateCompanies); only the break length remains a user setting.
   breakMinutes: 30,          // default break deducted on segments > 5h
+};
+
+/**
+ * Paycheck estimator defaults. Persisted per user via `estimator_settings`.
+ * Hourly rate is NEVER stored. The user enters gross per period at calc time.
+ *
+ * Locality shape mirrors src/core/tax.js estimateLocals input:
+ *   { nyc, nycRate, yonkers ('resident'|'nonresident'|'no'),
+ *     philadelphia, wilmington, paLocalEitRate, mdCountyRate }
+ *
+ * Deduction type values (see src/core/estimator.js):
+ *   'pre-tax-401k'       reduces federal + state, NOT FICA
+ *   'pre-tax-section125' reduces federal + state + FICA (HSA, FSA, premiums)
+ *   'post-tax'           reduces take-home only
+ */
+export const DEFAULT_ESTIMATOR_SETTINGS = {
+  state: null,
+  filingStatus: 'single',    // 'single' | 'mfj' | 'hoh'
+  payPeriodsPerYear: 26,     // 52 | 26 | 24 | 12
+  locality: {},
+  deductions: [],            // [{ name, amountPerPeriod, type }]
+  stateEffectiveRate: null,  // used when the selected state is in user-rate mode
 };
 
 /**

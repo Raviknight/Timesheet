@@ -15,6 +15,7 @@
  */
 
 import { supabase } from './supabase.js';
+import { SK, DEFAULT_ESTIMATOR_SETTINGS } from './schema.js';
 
 /**
  * Synchronous-feeling check for whether a user is signed in.
@@ -1200,3 +1201,202 @@ export const Store = {
     return pick().list(prefix);
   },
 };
+
+// ===========================================================================
+// Paycheck estimator: dedicated read/write functions.
+//
+// Estimator persistence sits OUTSIDE the Store dispatcher because the history
+// table is append-only (not snapshot-replace), which doesn't fit the get/set
+// pattern. Settings is a 1-to-1-with-user upsert. Both follow the local-then-
+// remote split: signed-in users read/write Supabase; signed-out fall back to
+// localStorage so the estimator works offline.
+//
+// Hourly rate is never persisted. Only the structural inputs (state, filing
+// status, locality, deduction template) and the structured result.
+// ===========================================================================
+
+/** Read the user's saved estimator settings. Returns DEFAULT_ESTIMATOR_SETTINGS when absent. */
+export async function getEstimatorSettings() {
+  const userId = getSignedInUserId();
+  if (userId) {
+    try {
+      const { data, error } = await supabase
+        .from('estimator_settings')
+        .select('state, filing_status, pay_periods_per_year, locality, deductions, state_effective_rate')
+        .maybeSingle();
+      if (error) {
+        console.error('[storage] estimator_settings read failed:', error);
+        return { ...DEFAULT_ESTIMATOR_SETTINGS };
+      }
+      if (!data) return { ...DEFAULT_ESTIMATOR_SETTINGS };
+      return {
+        state: data.state || null,
+        filingStatus: data.filing_status || 'single',
+        payPeriodsPerYear: data.pay_periods_per_year || 26,
+        locality: data.locality || {},
+        deductions: Array.isArray(data.deductions) ? data.deductions : [],
+        stateEffectiveRate: data.state_effective_rate ?? null,
+      };
+    } catch (e) {
+      console.error('[storage] estimator_settings unexpected error:', e);
+      return { ...DEFAULT_ESTIMATOR_SETTINGS };
+    }
+  }
+  // Local fallback
+  try {
+    const raw = localStorage.getItem(SK.estimatorSettings);
+    if (!raw) return { ...DEFAULT_ESTIMATOR_SETTINGS };
+    return { ...DEFAULT_ESTIMATOR_SETTINGS, ...JSON.parse(raw) };
+  } catch (e) {
+    return { ...DEFAULT_ESTIMATOR_SETTINGS };
+  }
+}
+
+/** Upsert the user's estimator settings. Returns true on success. */
+export async function saveEstimatorSettings(settings) {
+  const s = { ...DEFAULT_ESTIMATOR_SETTINGS, ...settings };
+  const userId = getSignedInUserId();
+  if (userId) {
+    try {
+      const { error } = await supabase
+        .from('estimator_settings')
+        .upsert({
+          user_id: userId,
+          state: s.state || null,
+          filing_status: s.filingStatus || 'single',
+          pay_periods_per_year: s.payPeriodsPerYear || 26,
+          locality: s.locality || {},
+          deductions: s.deductions || [],
+          state_effective_rate: s.stateEffectiveRate ?? null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+      if (error) {
+        console.error('[storage] estimator_settings upsert failed:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('[storage] estimator_settings unexpected error:', e);
+      return false;
+    }
+  }
+  try {
+    localStorage.setItem(SK.estimatorSettings, JSON.stringify(s));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Append a completed estimate to history.
+ * record = { inputs, result, note?, memberId? }
+ * Local mode caps history at 50 entries; remote is uncapped.
+ */
+export async function appendEstimateHistory(record) {
+  if (!record || !record.inputs || !record.result) return false;
+  const userId = getSignedInUserId();
+  if (userId) {
+    try {
+      const { error } = await supabase
+        .from('estimate_history')
+        .insert({
+          user_id: userId,
+          member_id: record.memberId || null,
+          inputs: record.inputs,
+          result: record.result,
+          note: record.note || null,
+        });
+      if (error) {
+        console.error('[storage] estimate_history insert failed:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('[storage] estimate_history unexpected error:', e);
+      return false;
+    }
+  }
+  try {
+    const raw = localStorage.getItem(SK.estimateHistory);
+    const arr = raw ? JSON.parse(raw) : [];
+    arr.unshift({
+      // Local-only synthetic id; remote rows get a uuid from Postgres.
+      id: 'local-' + Date.now() + '-' + Math.floor(Math.random() * 1e6),
+      createdAt: new Date().toISOString(),
+      inputs: record.inputs,
+      result: record.result,
+      note: record.note || null,
+      memberId: record.memberId || null,
+    });
+    const capped = arr.slice(0, 50);
+    localStorage.setItem(SK.estimateHistory, JSON.stringify(capped));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Load the user's estimate history, most recent first. */
+export async function loadEstimateHistory({ limit = 50 } = {}) {
+  const userId = getSignedInUserId();
+  if (userId) {
+    try {
+      const { data, error } = await supabase
+        .from('estimate_history')
+        .select('id, created_at, member_id, inputs, result, note')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (error) {
+        console.error('[storage] estimate_history read failed:', error);
+        return [];
+      }
+      return (data || []).map(r => ({
+        id: r.id,
+        createdAt: r.created_at,
+        memberId: r.member_id,
+        inputs: r.inputs,
+        result: r.result,
+        note: r.note,
+      }));
+    } catch (e) {
+      console.error('[storage] estimate_history unexpected error:', e);
+      return [];
+    }
+  }
+  try {
+    const raw = localStorage.getItem(SK.estimateHistory);
+    const arr = raw ? JSON.parse(raw) : [];
+    return arr.slice(0, limit);
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Delete a single estimate from history by id. */
+export async function deleteEstimateHistory(id) {
+  if (!id) return false;
+  const userId = getSignedInUserId();
+  if (userId) {
+    try {
+      const { error } = await supabase.from('estimate_history').delete().eq('id', id);
+      if (error) {
+        console.error('[storage] estimate_history delete failed:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('[storage] estimate_history unexpected error:', e);
+      return false;
+    }
+  }
+  try {
+    const raw = localStorage.getItem(SK.estimateHistory);
+    const arr = raw ? JSON.parse(raw) : [];
+    const filtered = arr.filter(r => r.id !== id);
+    localStorage.setItem(SK.estimateHistory, JSON.stringify(filtered));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}

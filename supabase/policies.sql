@@ -76,3 +76,20 @@ create policy "Members access own pays" on pays for all
   );
 create policy "Members access company time-off types" on time_off_types for all
   using (company_id in (select company_id from company_members where user_id = auth.uid()));
+
+-- Estimator settings and history (v5): both user-scoped, mirroring the
+-- settings table pattern. Estimator is a personal-planning feature, so access
+-- is gated on user_id (not membership) regardless of the optional member_id
+-- context column on estimate_history.
+alter table estimator_settings enable row level security;
+alter table estimate_history    enable row level security;
+
+create policy "Users access own estimator settings"
+  on estimator_settings for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create policy "Users access own estimate history"
+  on estimate_history for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
