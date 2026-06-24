@@ -99,22 +99,50 @@ console.log('\n== 8. NJ single ==');
 // = 280 + 262.5 + 175 + 1933.75 + 1592.5 = 4243.75
 check('NJ $100K single', estimateStateIncome({ state: 'NJ', filingStatus: 'single', annualGross: 100000 }), 4243.75);
 
-// 9. State: NJ MFJ in user-rate mode requires userEffectiveRate
-console.log('\n== 9. NJ MFJ in user-rate mode ==');
-check('NJ MFJ $100K @ 4%', estimateStateIncome({ state: 'NJ', filingStatus: 'mfj', annualGross: 100000, userEffectiveRate: 0.04 }), 4000);
-eq('NJ MFJ throws without userEffectiveRate', (() => {
-  try { estimateStateIncome({ state: 'NJ', filingStatus: 'mfj', annualGross: 100000 }); return false; }
+// 9. User-rate mode requires userEffectiveRate (NY HoH is the user-rate
+// representative now that NY single/MFJ, NJ MFJ, VT MFJ are bracket-mode).
+console.log('\n== 9. user-rate fallback (NY HoH) ==');
+check('NY HoH $100K @ 6.5%', estimateStateIncome({ state: 'NY', filingStatus: 'hoh', annualGross: 100000, userEffectiveRate: 0.065 }), 6500);
+eq('NY HoH throws without userEffectiveRate', (() => {
+  try { estimateStateIncome({ state: 'NY', filingStatus: 'hoh', annualGross: 100000 }); return false; }
   catch { return true; }
 })());
 
+// 9b. New brackets: NY single, NJ MFJ, MD single, DC, VA (all newly bracket-mode).
+console.log('\n== 9b. newly-bracketed state spot checks ==');
+// NY single $65K: 8500*.039 + 3200*.044 + 2200*.0515 + 51100*.054
+//               = 331.5 + 140.8 + 113.3 + 2759.4 = 3345.0
+check('NY single $65K', estimateStateIncome({ state: 'NY', filingStatus: 'single', annualGross: 65000 }), 3345.0);
+// NJ MFJ $100K: 20000*.014 + 30000*.0175 + 20000*.0245 + 10000*.035 + 20000*.0553
+//             = 280 + 525 + 490 + 350 + 1106 = 2751
+check('NJ MFJ $100K', estimateStateIncome({ state: 'NJ', filingStatus: 'mfj', annualGross: 100000 }), 2751);
+// MD single $50K: taxable = 50000 - 2550 = 47450
+//   1000*.02 + 1000*.03 + 1000*.04 + (47450-3000)*.0475
+//   = 20 + 30 + 40 + 2111.375 = 2201.375
+check('MD single $50K', estimateStateIncome({ state: 'MD', filingStatus: 'single', annualGross: 50000 }), 2201.375);
+// DC single $80K: taxable = 80000 - 15000 = 65000
+//   10000*.04 + 30000*.06 + 20000*.065 + 5000*.085
+//   = 400 + 1800 + 1300 + 425 = 3925
+check('DC single $80K', estimateStateIncome({ state: 'DC', filingStatus: 'single', annualGross: 80000 }), 3925);
+// VA single $30K: taxable = 30000 - 8750 = 21250
+//   3000*.02 + 2000*.03 + 12000*.05 + 4250*.0575
+//   = 60 + 60 + 600 + 244.375 = 964.375
+check('VA single $30K', estimateStateIncome({ state: 'VA', filingStatus: 'single', annualGross: 30000 }), 964.375);
+
 // 10. requiresUserRate
 console.log('\n== 10. requiresUserRate flags ==');
-eq('NY single requires user rate',  requiresUserRate('NY', 'single') === true);
 eq('PA single does not',            requiresUserRate('PA', 'single') === false);
 eq('NJ single does not',            requiresUserRate('NJ', 'single') === false);
-eq('NJ mfj does',                   requiresUserRate('NJ', 'mfj') === true);
+eq('NJ mfj does not (v5.1)',        requiresUserRate('NJ', 'mfj') === false);
+eq('NJ hoh still does',             requiresUserRate('NJ', 'hoh') === true);
+eq('NY single does not (v5.1)',     requiresUserRate('NY', 'single') === false);
+eq('NY hoh still does',             requiresUserRate('NY', 'hoh') === true);
 eq('VT single does not',            requiresUserRate('VT', 'single') === false);
-eq('VT mfj does',                   requiresUserRate('VT', 'mfj') === true);
+eq('VT mfj does not (v5.1)',        requiresUserRate('VT', 'mfj') === false);
+eq('VT hoh still does',             requiresUserRate('VT', 'hoh') === true);
+eq('MD single does not (v5.1)',     requiresUserRate('MD', 'single') === false);
+eq('DC mfj does not (v5.1)',        requiresUserRate('DC', 'mfj') === false);
+eq('VA hoh does not (v5.1)',        requiresUserRate('VA', 'hoh') === false);
 
 // 11. Addons
 console.log('\n== 11. payroll addons ==');

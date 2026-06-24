@@ -253,8 +253,8 @@ const STATES_2026 = {
     ],
   },
 
-  // Vermont 4 brackets per RemoteLaws / Tax Foundation summaries.
-  // TODO verify MFJ/HoH thresholds (using single for all statuses in v1 with note).
+  // Vermont 4 brackets. Single + MFJ verified. HoH pending.
+  // Source: tax.vermont.gov, MFJ via ustax.tools/vermont-tax-brackets-2026.
   VT: {
     code: 'VT', name: 'Vermont',
     income: {
@@ -265,14 +265,22 @@ const STATES_2026 = {
           { rate: 0.076,  upper: 229550 },
           { rate: 0.0875, upper: Infinity },
         ] },
-      mfj: { mode: 'user-rate' },
+      mfj: { mode: 'brackets', stdDeduction: 25000,
+        brackets: [
+          { rate: 0.0335, upper: 76000 },
+          { rate: 0.066,  upper: 184000 },
+          { rate: 0.076,  upper: 229050 },
+          { rate: 0.0875, upper: Infinity },
+        ] },
       hoh: { mode: 'user-rate' },
     },
     payrollAddons: [],
   },
 
-  // New Jersey single brackets verified. MFJ/HoH pending direct fetch.
-  // Source: https://www.nj.gov/treasury/taxation/taxtables.shtml
+  // New Jersey: single + MFJ brackets verified. HoH pending (per NJ convention
+  // HoH commonly uses single brackets, but unverified — kept on user-rate).
+  // Source: https://www.nj.gov/treasury/taxation/taxtables.shtml,
+  // MFJ verified via ustax.tools/new-jersey-tax-brackets-2026.
   NJ: {
     code: 'NJ', name: 'New Jersey',
     income: {
@@ -286,7 +294,17 @@ const STATES_2026 = {
           { rate: 0.0897,  upper: 1000000 },
           { rate: 0.1075,  upper: Infinity },
         ] },
-      mfj: { mode: 'user-rate' },
+      mfj: { mode: 'brackets', stdDeduction: 0,
+        brackets: [
+          { rate: 0.014,   upper: 20000 },
+          { rate: 0.0175,  upper: 50000 },
+          { rate: 0.0245,  upper: 70000 },
+          { rate: 0.035,   upper: 80000 },
+          { rate: 0.0553,  upper: 150000 },
+          { rate: 0.0637,  upper: 500000 },
+          { rate: 0.0897,  upper: 1000000 },
+          { rate: 0.1075,  upper: Infinity },
+        ] },
       hoh: { mode: 'user-rate' },
     },
     payrollAddons: [
@@ -297,8 +315,11 @@ const STATES_2026 = {
     ],
   },
 
-  // Connecticut single brackets verified. MFJ pending direct fetch.
-  // Source: https://portal.ct.gov/drs
+  // Connecticut: single + MFJ brackets verified. HoH pending (distinct schedule
+  // in CT, not yet pulled). CT personal exemption phases out by income; not
+  // modeled here, so estimates run slightly high at low incomes near the
+  // exemption phase-out. Source: https://portal.ct.gov/drs, MFJ via
+  // ustax.tools/connecticut-tax-brackets-2026.
   CT: {
     code: 'CT', name: 'Connecticut',
     income: {
@@ -312,7 +333,16 @@ const STATES_2026 = {
           { rate: 0.069,  upper: 500000 },
           { rate: 0.0699, upper: Infinity },
         ] },
-      mfj: { mode: 'user-rate' },
+      mfj: { mode: 'brackets', stdDeduction: 0,
+        brackets: [
+          { rate: 0.020,  upper: 20000 },
+          { rate: 0.045,  upper: 100000 },
+          { rate: 0.055,  upper: 200000 },
+          { rate: 0.060,  upper: 400000 },
+          { rate: 0.065,  upper: 500000 },
+          { rate: 0.069,  upper: 1000000 },
+          { rate: 0.0699, upper: Infinity },
+        ] },
       hoh: { mode: 'user-rate' },
     },
     payrollAddons: [
@@ -321,14 +351,40 @@ const STATES_2026 = {
     ],
   },
 
-  // New York: rates known but exact bracket thresholds pending direct PDF parse.
-  // SDI/PFL/Yonkers verified. NYC user-rate.
+  // New York: single + MFJ brackets verified (includes the 2026 0.2pp rate cut
+  // under Ch. 59 Laws of 2025: 4.0%→3.9% on low bracket etc.). HoH pending.
+  // Std deduction: TODO 2026 (kept at 0 for now, which slightly over-taxes;
+  // historical values were ~$8,000 single / ~$16,050 MFJ).
+  // SDI/PFL/Yonkers verified. NYC stays user-rate (NYC has its own brackets
+  // we haven't yet pulled). Source: ustax.tools/new-york-tax-brackets-2026.
   NY: {
     code: 'NY', name: 'New York',
     income: {
-      single: { mode: 'user-rate' },
-      mfj:    { mode: 'user-rate' },
-      hoh:    { mode: 'user-rate' },
+      single: { mode: 'brackets', stdDeduction: 0,
+        brackets: [
+          { rate: 0.039,  upper: 8500 },
+          { rate: 0.044,  upper: 11700 },
+          { rate: 0.0515, upper: 13900 },
+          { rate: 0.054,  upper: 80650 },
+          { rate: 0.059,  upper: 215400 },
+          { rate: 0.0685, upper: 1077550 },
+          { rate: 0.0965, upper: 5000000 },
+          { rate: 0.103,  upper: 25000000 },
+          { rate: 0.109,  upper: Infinity },
+        ] },
+      mfj: { mode: 'brackets', stdDeduction: 0,
+        brackets: [
+          { rate: 0.039,  upper: 17150 },
+          { rate: 0.044,  upper: 23600 },
+          { rate: 0.0515, upper: 27900 },
+          { rate: 0.054,  upper: 161550 },
+          { rate: 0.059,  upper: 323200 },
+          { rate: 0.0685, upper: 2155350 },
+          { rate: 0.0965, upper: 5000000 },
+          { rate: 0.103,  upper: 25000000 },
+          { rate: 0.109,  upper: Infinity },
+        ] },
+      hoh: { mode: 'user-rate' },
     },
     payrollAddons: [
       // NY SDI 0.5% capped at $0.60/week ($31.20/year).
@@ -339,37 +395,112 @@ const STATES_2026 = {
     ],
   },
 
-  // Maryland: rates 2-5.75% in 8 brackets; thresholds pending. County tax separate.
+  // Maryland: single + MFJ brackets verified (10 brackets, 2-6.5%). HoH pending
+  // (typically uses single brackets in MD but unverified). Std deductions
+  // verified. County tax separate — user enters their county rate via the
+  // locality input. Source: ustax.tools/maryland-tax-brackets-2026.
   MD: {
     code: 'MD', name: 'Maryland',
     income: {
-      single: { mode: 'user-rate' },
-      mfj:    { mode: 'user-rate' },
-      hoh:    { mode: 'user-rate' },
+      single: { mode: 'brackets', stdDeduction: 2550,
+        brackets: [
+          { rate: 0.02,   upper: 1000 },
+          { rate: 0.03,   upper: 2000 },
+          { rate: 0.04,   upper: 3000 },
+          { rate: 0.0475, upper: 100000 },
+          { rate: 0.05,   upper: 125000 },
+          { rate: 0.0525, upper: 150000 },
+          { rate: 0.055,  upper: 250000 },
+          { rate: 0.0575, upper: 500000 },
+          { rate: 0.0625, upper: 1000000 },
+          { rate: 0.065,  upper: Infinity },
+        ] },
+      mfj: { mode: 'brackets', stdDeduction: 5150,
+        brackets: [
+          { rate: 0.02,   upper: 1000 },
+          { rate: 0.03,   upper: 2000 },
+          { rate: 0.04,   upper: 3000 },
+          { rate: 0.0475, upper: 150000 },
+          { rate: 0.05,   upper: 175000 },
+          { rate: 0.0525, upper: 225000 },
+          { rate: 0.055,  upper: 300000 },
+          { rate: 0.0575, upper: 600000 },
+          { rate: 0.0625, upper: 1200000 },
+          { rate: 0.065,  upper: Infinity },
+        ] },
+      hoh: { mode: 'user-rate' },
     },
     payrollAddons: [],
   },
 
-  // District of Columbia: 4-10.75% in 7 brackets, no inflation indexing.
-  // Bracket thresholds pending TY2026 Pertinent Data Book fetch.
+  // District of Columbia: 7 brackets, 4-10.75%. Same schedule for all filing
+  // statuses (DC has a single bracket table, not differentiated by filing
+  // status). No inflation indexing. Std deduction verified.
+  // Source: ustax.tools/district-of-columbia-tax-brackets-2026.
   DC: {
     code: 'DC', name: 'District of Columbia',
     income: {
-      single: { mode: 'user-rate' },
-      mfj:    { mode: 'user-rate' },
-      hoh:    { mode: 'user-rate' },
+      single: { mode: 'brackets', stdDeduction: 15000,
+        brackets: [
+          { rate: 0.04,    upper: 10000 },
+          { rate: 0.06,    upper: 40000 },
+          { rate: 0.065,   upper: 60000 },
+          { rate: 0.085,   upper: 250000 },
+          { rate: 0.0925,  upper: 500000 },
+          { rate: 0.0975,  upper: 1000000 },
+          { rate: 0.1075,  upper: Infinity },
+        ] },
+      mfj: { mode: 'brackets', stdDeduction: 30000,
+        brackets: [
+          { rate: 0.04,    upper: 10000 },
+          { rate: 0.06,    upper: 40000 },
+          { rate: 0.065,   upper: 60000 },
+          { rate: 0.085,   upper: 250000 },
+          { rate: 0.0925,  upper: 500000 },
+          { rate: 0.0975,  upper: 1000000 },
+          { rate: 0.1075,  upper: Infinity },
+        ] },
+      hoh: { mode: 'brackets', stdDeduction: 15000,
+        brackets: [
+          { rate: 0.04,    upper: 10000 },
+          { rate: 0.06,    upper: 40000 },
+          { rate: 0.065,   upper: 60000 },
+          { rate: 0.085,   upper: 250000 },
+          { rate: 0.0925,  upper: 500000 },
+          { rate: 0.0975,  upper: 1000000 },
+          { rate: 0.1075,  upper: Infinity },
+        ] },
     },
     payrollAddons: [],
   },
 
-  // Virginia 2-5.75%, 4 brackets. Top rate kicks in at just $17K (verified).
-  // Lower thresholds pending direct verification (likely 2% to $3K, 3% to $5K, 5% to $17K).
+  // Virginia 2-5.75%, 4 brackets. Same schedule for all filing statuses
+  // (VA explicitly uses one bracket table). Std deduction + personal
+  // exemption verified. Source: ustax.tools/virginia-tax-brackets-2026.
   VA: {
     code: 'VA', name: 'Virginia',
     income: {
-      single: { mode: 'user-rate' },
-      mfj:    { mode: 'user-rate' },
-      hoh:    { mode: 'user-rate' },
+      single: { mode: 'brackets', stdDeduction: 8750,
+        brackets: [
+          { rate: 0.02,   upper: 3000 },
+          { rate: 0.03,   upper: 5000 },
+          { rate: 0.05,   upper: 17000 },
+          { rate: 0.0575, upper: Infinity },
+        ] },
+      mfj: { mode: 'brackets', stdDeduction: 17500,
+        brackets: [
+          { rate: 0.02,   upper: 3000 },
+          { rate: 0.03,   upper: 5000 },
+          { rate: 0.05,   upper: 17000 },
+          { rate: 0.0575, upper: Infinity },
+        ] },
+      hoh: { mode: 'brackets', stdDeduction: 8750,
+        brackets: [
+          { rate: 0.02,   upper: 3000 },
+          { rate: 0.03,   upper: 5000 },
+          { rate: 0.05,   upper: 17000 },
+          { rate: 0.0575, upper: Infinity },
+        ] },
     },
     payrollAddons: [],
   },

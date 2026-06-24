@@ -241,12 +241,13 @@ For each estimate, the engine:
 
 Per-filing-status mode chosen by what 2026 data has been verified:
 
-- **Brackets** (full math): PA, MA, NH, DE, RI, VT for all statuses; NJ, CT, VT
-  for single only (their MFJ/HoH thresholds are pending direct verification
-  from the state's official PDF).
-- **User-rate**: NY, MD, DC, VA for all statuses; NJ/CT/VT MFJ and HoH. The UI
-  surfaces an "effective state rate %" input when this mode applies so the
-  result is clearly an estimate against a user-supplied rate.
+- **Brackets** (full math): PA, MA, NH, DE, RI for all statuses; DC and VA for
+  all statuses (each uses a single bracket schedule regardless of filing);
+  NY, NJ, MD, CT, VT for single and MFJ.
+- **User-rate**: HoH for NY, NJ, MD, CT, VT. The UI surfaces an "effective
+  state rate %" input when this mode applies so the result is clearly an
+  estimate against a user-supplied rate. NYC also stays user-rate (the
+  NYC-specific bracket schedule hasn't been pulled).
 
 ### Persistence
 

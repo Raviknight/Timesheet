@@ -99,17 +99,16 @@ check('MA MFJ state annual', r4.annual.stateTax, 70200 * 0.05);
 const maPfml = r4.payrollAddons.find(a => a.code === 'MA_PFML');
 check('MA PFML annual per-period', maPfml.amount, (78000 * 0.0046) / 26);
 
-// 5. NY single, $2500 biweekly, user effective state rate 6.5%, NYC rate 3.8%, no Yonkers
-console.log('\n== 5. NY single user-rate, NYC 3.8% ==');
+// 5. NY single (now bracket mode), $2500 biweekly, NYC rate 3.8%
+console.log('\n== 5. NY single (brackets), NYC 3.8% ==');
 const r5 = estimatePaycheck({
   grossPerPeriod: 2500, payPeriodsPerYear: 26,
   state: 'NY', filingStatus: 'single',
-  stateEffectiveRate: 0.065,
   locality: { nyc: true, nycRate: 0.038 },
 });
 // Annual gross = 65,000
-// State: 65000 × 0.065 = $4,225
-check('NY user-rate state annual', r5.annual.stateTax, 65000 * 0.065);
+// NY single brackets: 8500*.039 + 3200*.044 + 2200*.0515 + 51100*.054 = 3345.0
+check('NY single state annual (brackets)', r5.annual.stateTax, 3345.0);
 // NYC: 65000 × 0.038 = $2,470
 check('NY NYC local annual', r5.annual.localTax, 65000 * 0.038);
 // NY SDI cap $31.20 + NY PFL: 65000 × 0.00432 = 280.80 (below cap)
@@ -118,16 +117,24 @@ const nyPfl = r5.payrollAddons.find(a => a.code === 'NY_PFL');
 check('NY SDI per-period', nySdi.amount, 31.20 / 26);
 check('NY PFL per-period', nyPfl.amount, (65000 * 0.00432) / 26);
 
-// 6. Yonkers resident surcharge depends on state tax
+// 6. Yonkers resident surcharge depends on state tax (now bracket-computed)
 console.log('\n== 6. NY single + Yonkers resident (16.75% of state tax) ==');
 const r6 = estimatePaycheck({
   grossPerPeriod: 2500, payPeriodsPerYear: 26,
   state: 'NY', filingStatus: 'single',
-  stateEffectiveRate: 0.065,
   locality: { yonkers: 'resident' },
 });
-// Yonkers resident: 16.75% of (65000 × 0.065 = 4225) = 707.69
-check('Yonkers resident surcharge', r6.annual.localTax, 4225 * 0.1675);
+// Yonkers resident: 16.75% of NY state tax (3345.0 for $65K single)
+check('Yonkers resident surcharge', r6.annual.localTax, 3345.0 * 0.1675);
+
+// 6b. User-rate path still works on NY HoH (HoH not yet bracket-mode)
+console.log('\n== 6b. NY HoH user-rate fallback ==');
+const r6b = estimatePaycheck({
+  grossPerPeriod: 2500, payPeriodsPerYear: 26,
+  state: 'NY', filingStatus: 'hoh',
+  stateEffectiveRate: 0.065,
+});
+check('NY HoH user-rate annual', r6b.annual.stateTax, 65000 * 0.065);
 
 // 7. NH zero state tax, no addons
 console.log('\n== 7. NH (no income tax) ==');
