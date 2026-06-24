@@ -161,6 +161,86 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### June 20, 2026: bootstrap fix + 0.5b storage cutover + half-day PTO
+
+Owed-from-handover entries, captured retroactively on 2026-06-24.
+
+- **Bootstrap clobber fix (commit 55977c5, fast-forward merged to main).**
+  Profile upsert was unconditionally writing `active_company_id` even when
+  falling back to `DEFAULT_PROFILE`; `bootApp` now self-heals when
+  `active_company_id` is null but companies exist. Root cause was two
+  writers (bootstrap's insert and the ungated upsert in
+  `RemoteStore.set('ts:profile')`); the upsert wrote null over the
+  bootstrap value whenever a swallowed profile-read error caused
+  `state.profile.companyId` to fall back. Two defenses landed:
+    - `RemoteStore.set('ts:profile')` only includes `active_company_id`
+      in the upsert payload when `value.companyId` is non-null.
+    - `bootApp` calls `healActiveCompanyId(userId)` after `loadAll`; if
+      `state.profile.companyId` is null and `state.companies` is
+      non-empty, it writes the lowest company id directly via
+      `profiles.update().eq('user_id', userId)`, bypassing the gated
+      upsert path. In-memory `state.profile.companyId` is synced.
+  Pattern lesson: when one writer is authoritative (sets a field
+  correctly) and another is permissive (writes whatever's in state), a
+  stale state read can clobber the authoritative value. Fix is to gate
+  the permissive writer to only include the field when it has a real
+  value, and add a heal path on boot for victims already in the bad
+  state.
+
+- **0.5b storage cutover (commit b30ccaa).** Per-employee fields
+  (`breakMinutes`, `stdSeg1Start/End`, `stdSeg2Start/End`, `startDate`)
+  routed through `company_members` via Path B (overlay at storage-read
+  time). `companyRowToAppShape(row, memberOverlay = null)` prefers
+  overlay values when present, fell back to row columns (the fallback
+  was transitional and dropped in today's 0.5c). Both companies SELECT
+  paths fetched member rows via a new `getMembersForCompanies(ids)`
+  helper and overlaid during `.map`. Write split: `COMPANY_UPDATE_FIELDS`
+  lost the six fields; new `MEMBER_UPDATE_FIELDS` + `diffMemberForUpdate`
+  routed them to `company_members`. Removed `seedPerCompanyBreakAndStandardDay`
+  from app.js plus its call site; stopped `migrateCompanies` defaulting
+  the five break/std keys.
+
+- **Half-day PTO engine + schema (commit bb317a6).** Added
+  `entries.hours_override numeric(5,2) NULL` column. Single engine
+  branch in `core/time.js computeHoursPaid`: when `entry.hoursOverride
+  != null`, the time-off hours are the override (not `type.hoursPerDay`)
+  AND the override is additive to worked segments (a worked half-day
+  still earns its time-off portion). Null override is byte-identical to
+  prior behavior. `core/coverage.js` switched pool draws from
+  `computeHoursPaid` to `computeHoursBenefit` (paid minus worked) so
+  worked hours never deplete the balance; backward-identical for
+  whole-day entries where benefit equals paid. 3 new test cases in
+  `test-coverage.mjs`. `SCHEMA_VERSION` bumped 3 to 4.
+
+- **Half-day PTO UI + fractional days (commit 6f05bbb).** Entry modal
+  gained a `Duration` select (Full day / Half day) in a new third
+  `.grow` next to the time-off code dropdown. Single shared
+  `computeHoursOverride()` helper used by both live preview and save (no
+  drift possible). Pool card's `available` and `used` figures now use a
+  `formatDays()` helper that renders integers cleanly and one decimal
+  when fractional (10.5 days available, 84 h). `pool`, `reserved`,
+  `earned`, `carried` stay floored. The days x hours-per-day
+  reconciliation invariant is preserved (hours derived from displayed
+  day figure). This intentionally relaxes the chunk-B "all pool-card
+  day figures floor" convention.
+
+- **Juan's data migration (data event, no code commit).** Six 2026
+  paper calendars (Jan-Jun) transcribed to CSV, end times verified.
+  170 days total. Generated and committed via single SQL block in
+  Supabase: 128 INSERTs covering worked days and time-off entries
+  Juan hadn't logged; 2 UPDATEs converting existing full-day PTO
+  entries (Jan 26, Apr 28) to half-day shape (segments +
+  `hours_override = 4`); 12 skipped via
+  `ON CONFLICT (user_id, company_id, date) DO NOTHING`; 28 Sundays + 3
+  blank Saturdays not imported. `breakTaken` set per A.1 rule (true
+  for Mon-Fri segments strictly over 5h gross). Post-commit total in
+  range: 142 entries. Then `company_members.hire_date` set so PTO
+  cycles had an anchor and prior-cycle carryover could compute; the
+  dashboard now shows `pool: 25 days (200 h) = 20 this year + 5
+  carried` and `15 days available, 5 used`. Five workspace companies
+  renamed to "Ferry Machine" (singular, matching Juan's correctly
+  named one) via single SQL UPDATE.
+
 ### June 24, 2026: paycheck estimator v5
 
 Personal-planning paycheck estimator. Independent of the rest of the app: a
