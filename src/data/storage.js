@@ -208,11 +208,10 @@ export const LocalStore = {
 // ===========================================================================
 
 export function companyRowToAppShape(row, memberOverlay = null) {
-  // Per-employee fields (break, Standard Day, hire date) now live on
-  // company_members. When a member overlay is supplied we read them from there;
-  // otherwise we fall back to the companies columns. The fallback is
-  // transitional and goes away when 0.5c drops the columns. break uses ?? (not
-  // ||) so a deliberately stored 0 survives.
+  // Per-employee fields (break, Standard Day, hire date) live on
+  // company_members. The 0.5c migration dropped the legacy companies-table
+  // columns, so we read overlay-only now (null when no overlay). break uses ??
+  // (not ||) so a deliberately stored 0 survives.
   const ov = memberOverlay;
   return {
     id: row.id,
@@ -228,12 +227,12 @@ export function companyRowToAppShape(row, memberOverlay = null) {
     isActive: row.is_active ?? null,
     otThreshold: row.ot_threshold ?? 40,
     otPeriod: row.ot_period ?? 'weekly',
-    breakMinutes: ov ? ov.breakMinutes : (row.break_minutes ?? null),
-    stdSeg1Start: ov ? ov.stdSeg1Start : (row.std_seg1_start ?? null),
-    stdSeg1End: ov ? ov.stdSeg1End : (row.std_seg1_end ?? null),
-    stdSeg2Start: ov ? ov.stdSeg2Start : (row.std_seg2_start ?? null),
-    stdSeg2End: ov ? ov.stdSeg2End : (row.std_seg2_end ?? null),
-    startDate: ov ? ov.startDate : (row.start_date ?? null),
+    breakMinutes: ov ? ov.breakMinutes : null,
+    stdSeg1Start: ov ? ov.stdSeg1Start : null,
+    stdSeg1End:   ov ? ov.stdSeg1End   : null,
+    stdSeg2Start: ov ? ov.stdSeg2Start : null,
+    stdSeg2End:   ov ? ov.stdSeg2End   : null,
+    startDate:    ov ? ov.startDate    : null,
   };
 }
 
@@ -688,9 +687,7 @@ export const RemoteStore = {
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
-            ' ot_threshold, ot_period, break_minutes,' +
-            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end,' +
-            ' start_date'
+            ' ot_threshold, ot_period'
           );
         if (error) {
           console.error('[storage] companies read failed:', error);
@@ -1143,9 +1140,7 @@ export const RemoteStore = {
             'id, name, pay_frequency, week_start_dow, biweekly_start_parity,' +
             ' semi_first_day, semi_second_day, monthly_start_day,' +
             ' advanced_anchor_date, advanced_cycle_days, is_active,' +
-            ' ot_threshold, ot_period, break_minutes,' +
-            ' std_seg1_start, std_seg1_end, std_seg2_start, std_seg2_end,' +
-            ' start_date'
+            ' ot_threshold, ot_period'
           );
         const refreshedRows = refreshed || [];
         const refreshedMembers = await getMembersForCompanies(refreshedRows.map(r => r.id));

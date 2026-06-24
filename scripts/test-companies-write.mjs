@@ -29,6 +29,9 @@ function eq(label, actual, expected) {
 // 1. Read-path mapping
 // ---------------------------------------------------------------------------
 
+// After 0.5c the per-employee columns (break_minutes, std_seg*, start_date)
+// no longer exist on the companies row. companyRowToAppShape reads them from
+// the member overlay only; without an overlay they come back null.
 const fullRow = {
   id: '93bf1d42-4f06-4d14-ad72-587f787b7c0a',
   name: 'Ferry',
@@ -40,13 +43,6 @@ const fullRow = {
   monthly_start_day: null,
   advanced_anchor_date: null,
   advanced_cycle_days: null,
-  // A deliberately stored break of 0 must survive (?? not ||). Standard Day
-  // seg1 is set; seg2 is null.
-  break_minutes: 0,
-  std_seg1_start: '08:00',
-  std_seg1_end: '16:30',
-  std_seg2_start: null,
-  std_seg2_end: null,
 };
 
 eq(
@@ -66,11 +62,12 @@ eq(
     isActive: null,
     otThreshold: 40,
     otPeriod: 'weekly',
-    breakMinutes: 0,
-    stdSeg1Start: '08:00',
-    stdSeg1End: '16:30',
+    breakMinutes: null,
+    stdSeg1Start: null,
+    stdSeg1End: null,
     stdSeg2Start: null,
     stdSeg2End: null,
+    startDate: null,
   }
 );
 
@@ -102,6 +99,7 @@ eq(
     stdSeg1End: null,
     stdSeg2Start: null,
     stdSeg2End: null,
+    startDate: null,
   }
 );
 
@@ -234,11 +232,10 @@ eq(
     isActive: true,
     otThreshold: 40,
     otPeriod: 'weekly',
-    breakMinutes: null,
-    stdSeg1Start: null,
-    stdSeg1End: null,
-    stdSeg2Start: null,
-    stdSeg2End: null,
+    // Per-employee fields (break, Standard Day, hire date) live on
+    // company_members. migrateCompanies no longer defaults them, so they're
+    // absent from the migrated shape; they only appear on the app-shape after
+    // companyRowToAppShape pulls them off the member overlay.
   }
 );
 

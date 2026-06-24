@@ -29,9 +29,9 @@ create table profiles (
 --
 -- Pay-period columns: each company owns its own pay-period configuration.
 -- Nullable columns are only meaningful for the matching pay_frequency value;
--- other frequencies should leave them null. Per-company break, Standard Day,
--- and the hire date (start_date) drive break deduction, entry prefill, and PTO
--- accrual respectively.
+-- other frequencies should leave them null. Per-employee break, Standard Day,
+-- and hire date live on company_members (see below); 0.5c dropped the
+-- transitional companies-table copies.
 create table companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -51,13 +51,7 @@ create table companies (
   is_active boolean not null default true,
   ot_threshold numeric not null default 40,
   ot_period text not null default 'weekly'
-    check (ot_period in ('weekly','biweekly','semimonthly','monthly')),
-  break_minutes integer,                         -- per-company break override
-  std_seg1_start text,                           -- per-company Standard Day
-  std_seg1_end text,
-  std_seg2_start text,
-  std_seg2_end text,
-  start_date date                                -- hire date: cycle anchor + probation
+    check (ot_period in ('weekly','biweekly','semimonthly','monthly'))
 );
 
 -- profiles.active_company_id references companies(id). Added here because
