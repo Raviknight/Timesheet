@@ -641,6 +641,13 @@ function renderResult(r) {
       <span class="grow">Effective tax rate: <strong>${(r.effectiveTaxRate * 100).toFixed(1)}%</strong></span>
       <span>Marginal federal rate: <strong>${(r.marginalFederalRate * 100).toFixed(0)}%</strong></span>
     </div>
+    <div class="help" style="margin-top:6px;font-size:11px;color:var(--text-3)">
+      State income tax shown is your projected year-end liability. The
+      withholding line on a real paystub (e.g. ADP) is often a few percent
+      higher because state withholding tables over-collect by design,
+      generating a refund at filing time. The federal and FICA numbers
+      here match standard withholding.
+    </div>
   `;
 }
 

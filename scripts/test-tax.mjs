@@ -150,6 +150,20 @@ console.log('\n== 11. payroll addons ==');
 const njAddons = estimateAddons({ state: 'NJ', annualGross: 200000 });
 const njFli = njAddons.find(a => a.code === 'NJ_FLI');
 check('NJ FLI capped at $393.53', njFli.amount, 393.53);
+// NJ SDI 2026 restored: 0.19% on $171,100 → max $325.09 at $200K gross
+const njSdi = njAddons.find(a => a.code === 'NJ_SDI');
+check('NJ SDI capped at $325.09', njSdi.amount, 325.09);
+// NJ SUI 2026: 0.425% on $44,800 → max $190.40 at $200K gross
+const njSui = njAddons.find(a => a.code === 'NJ_SUI');
+check('NJ SUI capped at $190.40', njSui.amount, 190.40);
+// NJ low earner (below wage base): no caps hit
+const njLow = estimateAddons({ state: 'NJ', annualGross: 40000 });
+const njFliLow = njLow.find(a => a.code === 'NJ_FLI');
+const njSdiLow = njLow.find(a => a.code === 'NJ_SDI');
+const njSuiLow = njLow.find(a => a.code === 'NJ_SUI');
+check('NJ FLI $40K not capped', njFliLow.amount, 40000 * 0.0023);
+check('NJ SDI $40K not capped', njSdiLow.amount, 40000 * 0.0019);
+check('NJ SUI $40K not capped', njSuiLow.amount, 40000 * 0.00425);
 // NY PFL: $100K → 0.432% × 100000 = $432, but cap is $411.91
 const nyAddons = estimateAddons({ state: 'NY', annualGross: 100000 });
 const nyPfl = nyAddons.find(a => a.code === 'NY_PFL');

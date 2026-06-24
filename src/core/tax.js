@@ -308,10 +308,15 @@ const STATES_2026 = {
       hoh: { mode: 'user-rate' },
     },
     payrollAddons: [
-      // NJ FLI 0.23% on first $171,100. NJ DOL 2026 press release.
+      // NJ DOL 2026 press release: https://www.nj.gov/labor/lwdhome/press/2025/20251229_newbenefitrates2026.shtml
+      // FLI: 0.23% on first $171,100 (max $393.53).
       { code: 'NJ_FLI', name: 'NJ Family Leave Insurance', rate: 0.0023, annualCap: 171100 * 0.0023 },
-      // NJ SDI/TDI employee rate has been 0 since 2023. TODO verify 2026.
-      // NJ SUI employee rate placeholder (was ~0.3825% historically). TODO verify 2026.
+      // TDI/SDI: 0.19% on first $171,100 (max $325.09). Employee contribution
+      // was 0 from 2023 through 2025; restored for 2026.
+      { code: 'NJ_SDI', name: 'NJ State Disability Insurance', rate: 0.0019, annualCap: 171100 * 0.0019 },
+      // SUI: 0.425% on first $44,800 (max $190.40). Combined SUI + WF/SWF
+      // (Workforce/Supplemental Workforce) employee contribution.
+      { code: 'NJ_SUI', name: 'NJ State Unemployment Insurance', rate: 0.00425, annualCap: 44800 * 0.00425 },
     ],
   },
 
