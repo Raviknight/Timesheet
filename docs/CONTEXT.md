@@ -206,16 +206,76 @@ into a take-home breakdown. Hourly rate is never stored.
   is not.
 
 Known limitations and follow-ups:
-- The user-rate states (NY/MD/DC/VA + NJ-MFJ/HoH, CT-MFJ/HoH, VT-MFJ/HoH)
-  need their 2026 bracket thresholds pulled directly from the state
-  withholding PDFs (NYS-50-T-NYS, NJ withholding rate tables, etc.). Each
-  one is a small follow-up that flips that filing-status entry from
-  `'user-rate'` to `'brackets'`.
+- HoH brackets for NY/NJ/MD/CT/VT still on user-rate (their HoH
+  schedules are distinct from single/MFJ and weren't reachable via the
+  WebFetch sources we tried). Same for NYC bracket schedule.
 - A few addon rates carry TODO comments pending verification (NJ SUI,
-  PA SUI, MA personal exemption, DE/VT intermediate thresholds).
+  PA SUI, MA personal exemption, DE/VT intermediate thresholds, NY std
+  deduction).
 - The owed CONTEXT entries flagged in the handover (bootstrap fix, 0.5b,
-  half-day-a, half-day-b, Juan migration) are still pending and best
-  absorbed into the 0.5c commit per the original plan.
+  half-day-a, half-day-b, Juan migration) are still pending - they were
+  scheduled for 0.5c but rolled forward when 0.5c got pulled into this
+  session ahead of being narrowly scoped.
+
+### June 24, 2026: bracket fills + 0.5c + 0.6 + estimator v2
+
+Same-day continuation. The first chunk shipped the estimator end-to-end
+(see above). The follow-ups: convert remaining user-rate states to
+brackets, close 0.5c (column drop) and 0.6 (RLS tightening), and
+respond to Ravi's request to add salary/hourly/multi-source modes.
+
+- **Bracket fills (commit 0ec0dad).** NY (single+MFJ, 9 brackets each,
+  3.9-10.9% reflecting the Ch. 59 Laws of 2025 0.2pp cut), NJ MFJ
+  (8 brackets including the MFJ-only 2.45% rate), MD (single+MFJ,
+  10 brackets, 2-6.5%, std deductions $2,550/$5,150), DC (one schedule
+  for all 3 statuses, 7 brackets, 4-10.75%), VA (one schedule for all 3,
+  4 brackets, std deductions $8,750/$17,500), CT MFJ (7 brackets), VT
+  MFJ (4 brackets with proper MFJ thresholds). HoH for NY/NJ/MD/CT/VT
+  stays user-rate. Source: ustax.tools 2026 pages (after Tax Foundation
+  and the official PDFs both stalled). 5 new spot-check tests added.
+
+- **0.5c (commit 5deebeb + live SQL).** Dropped `break_minutes`,
+  `std_seg1_start`, `std_seg1_end`, `std_seg2_start`, `std_seg2_end`,
+  `start_date` from companies. Code shipped first: both `ts:companies`
+  SELECT lists no longer reference the columns; `companyRowToAppShape`
+  now reads overlay-only (no row fallback); `supabase/schema.sql`
+  mirror trimmed. SQL DROP COLUMN x6 ran clean. The three pre-existing
+  test-companies-write failures got fixed at the same time (they were
+  expectations missing the `startDate` field that the app-shape already
+  returned).
+
+- **0.6 (commit ac8e5fc + live SQL).** Tightened companies RLS from
+  `USING(true)` shortcuts to owner-or-member scoping. Two SELECT
+  policies (Owners can view, Members can view) get OR'd by Postgres
+  RLS - the owner-only path covers bootstrap/createCompany/deleteCompany
+  RETURNING clauses (before any company_members row exists), the
+  membership path covers post-bootstrap reads. INSERT tightened to
+  `owner_user_id = auth.uid()`. UPDATE unchanged. DELETE now has an
+  explicit owner-only policy (was implicit via the loose SELECT before).
+  Migration applied in pieces (dry-run + partial-state recovery + two
+  single-statement applies for the loose-INSERT drop + the missing
+  Owners-can-create policy).
+
+- **Estimator v2 (commit c13f0d4 + live SQL).** Pay-type select added:
+  Salary (amount + per-period-or-annual selector), Hourly (regular +
+  OT 1.5x + double-time 2x at a rate, with live computed-gross
+  readout), Multiple income sources (list of salary/hourly entries,
+  summed to a single per-period gross with combined-total readout).
+  State and filing stay single across all sources. Engine signature
+  unchanged - the modal derives the per-period gross from the
+  pay-type-specific inputs. Deduction quick-add menu added with 10
+  presets (Health/Dental/Vision/HSA/FSA/401k/403b/Roth/Life/Disability).
+  Two new columns on `estimator_settings`: `pay_type` and
+  `salary_mode` (both with check constraints + defaults). Pay type
+  and salary mode persist; all dollar amounts, hours, rates, and
+  per-source values are transient (the no-rate-storage rule from v5
+  applies to all numeric inputs).
+
+Process note: Ravi flagged that combined multi-statement SQL blocks
+(BEGIN + ALTER + verify + ROLLBACK in one editor execution) were hard
+to manage as a non-developer. Working agreement updated: one SQL
+statement per fenced block from now on, with explicit "Run this next"
+labels and re-runnable verification queries separated out.
 
 ### June 17, 2026: 0.4 membership-scoped storage cutover
 
