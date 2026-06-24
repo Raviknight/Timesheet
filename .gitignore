@@ -11,3 +11,6 @@ CLAUDE.md.bak
 
 # Claude Code local session/tooling directory
 .claude/
+
+# tax-research scratch (not committed; tax data lives in src/core/tax.js with inline citations)
+.tax-research-*.md
