@@ -150,8 +150,11 @@ const STATES_2026 = {
       mfj:    { mode: 'brackets', brackets: PA_FLAT, stdDeduction: 0 },
       hoh:    { mode: 'brackets', brackets: PA_FLAT, stdDeduction: 0 },
     },
-    // PA SUI employee rate (small, recently 0.07%) — TODO verify 2026.
-    payrollAddons: [],
+    payrollAddons: [
+      // PA UC employee withholding: 0.07% on ALL gross wages (no cap).
+      // Source: https://www.pa.gov/agencies/dli/resources/for-employers-and-educators/how-to-file/uc-tax/calculating-contributions--penalties-and-interest
+      { code: 'PA_SUI', name: 'PA State Unemployment Insurance', rate: 0.0007 },
+    ],
   },
 
   // Massachusetts flat 5% + 4% surtax over $1,107,750. Source: https://www.mass.gov/info-details/massachusetts-tax-rates
@@ -221,7 +224,13 @@ const STATES_2026 = {
           { rate: 0.066, upper: Infinity },
         ] },
     },
-    payrollAddons: [],
+    payrollAddons: [
+      // DE Paid Leave employee contribution: 0.4% (half of 0.8% total, split
+      // evenly with employer). Effective Jan 1, 2025; benefits Jan 1, 2026.
+      // Wage base TODO verify - using SS wage base ($184,500) as the common
+      // pattern for state PFML programs.
+      { code: 'DE_PFL', name: 'DE Paid Leave', rate: 0.004, annualCap: 184500 * 0.004 },
+    ],
   },
 
   // Rhode Island 3 brackets. First to $82,050 for 2026 (RI Adv 2025-22).

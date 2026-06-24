@@ -182,6 +182,20 @@ check('RI TDI capped at $1,100', riTdi.amount, 1100);
 const maAddons = estimateAddons({ state: 'MA', annualGross: 50000 });
 const maPfml = maAddons.find(a => a.code === 'MA_PFML');
 check('MA PFML $50K', maPfml.amount, 230);
+// PA SUI: 0.07% on all gross, no cap. $200K → $140
+const paAddons = estimateAddons({ state: 'PA', annualGross: 200000 });
+const paSui = paAddons.find(a => a.code === 'PA_SUI');
+check('PA SUI $200K (no cap)', paSui.amount, 200000 * 0.0007);
+// PA SUI at very high income: still no cap, still rate × gross
+const paSuiHigh = estimateAddons({ state: 'PA', annualGross: 500000 }).find(a => a.code === 'PA_SUI');
+check('PA SUI $500K (no cap)', paSuiHigh.amount, 500000 * 0.0007);
+// DE PFL: 0.4% × $50K = $200 (well below cap)
+const deAddons = estimateAddons({ state: 'DE', annualGross: 50000 });
+const dePfl = deAddons.find(a => a.code === 'DE_PFL');
+check('DE PFL $50K', dePfl.amount, 200);
+// DE PFL: $300K → capped at SS-wage-base × 0.4% = 184500 × 0.004 = $738
+const dePflHigh = estimateAddons({ state: 'DE', annualGross: 300000 }).find(a => a.code === 'DE_PFL');
+check('DE PFL $300K capped at SS wage base', dePflHigh.amount, 184500 * 0.004);
 
 // 12. Locals
 console.log('\n== 12. local taxes ==');
