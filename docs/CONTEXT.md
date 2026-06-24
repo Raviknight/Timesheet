@@ -161,6 +161,62 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### June 24, 2026: paycheck estimator v5
+
+Personal-planning paycheck estimator. Independent of the rest of the app: a
+button on the Paychecks view opens a modal that turns a hypothetical gross
+into a take-home breakdown. Hourly rate is never stored.
+
+- **Chunk 1 (commit 278e9b6).** Pure engine + tests. `src/core/tax.js` holds
+  2026 federal brackets, FICA constants, and a 12-state table covering PA, MA,
+  NH, DE, RI, VT (full brackets for all statuses), NJ/CT/VT (single brackets
+  only; MFJ/HoH on user-rate pending direct PDF parse), and NY/MD/DC/VA
+  (user-rate for all statuses, pending bracket data). State payroll add-ons:
+  NJ FLI, NY SDI/PFL, CT/MA PFML, RI TDI. Locals: NYC, Yonkers, Philadelphia,
+  Wilmington, PA EIT, MD county. `src/core/estimator.js` orchestrates per-
+  paycheck inputs via annualize → bracket → divide-back. Pre-tax 401(k)
+  reduces federal + state, NOT FICA; Section 125 reduces all three. Tests in
+  `scripts/test-tax.mjs` (~33 cases) and `scripts/test-estimator.mjs`
+  (10 end-to-end). Tests not run locally (Node missing on the clone PC);
+  hand-traced against implementation. Citations live in
+  `.tax-research-2026.md` (gitignored).
+- **Chunk 2 (commit 323d992).** Schema + storage. Two new tables with
+  user-scoped RLS:
+    - `estimator_settings` (1-to-1 per user): state, filing_status,
+      pay_periods_per_year, locality jsonb, deductions jsonb,
+      state_effective_rate.
+    - `estimate_history` (append-only): inputs and result jsonb snapshots,
+      optional member_id context, optional note, indexed by
+      `(user_id, created_at desc)`.
+  SCHEMA_VERSION bumped 4 → 5. `src/data/storage.js` got four dedicated
+  functions outside the Store dispatcher (history is append-only, doesn't fit
+  get/set): `getEstimatorSettings`, `saveEstimatorSettings`,
+  `appendEstimateHistory`, `loadEstimateHistory`, `deleteEstimateHistory`.
+  SQL run against `kijumyxoiacvqlqqwqon` after BEGIN/ROLLBACK dry-run
+  verified the policies and tables would exist.
+- **Chunk 3 (this commit).** UI + docs. `src/modals/estimateModal.js` renders
+  the modal: pay frequency, gross, state, filing, locality (state-conditional
+  inputs), state-effective-rate fallback when in user-rate mode, deductions
+  table with add/remove, live result breakdown (per-paycheck + annual),
+  history panel with save/delete. Save defaults persists the template (never
+  the gross). Estimate button added to the Paychecks view header next to Add
+  Paycheck. `docs/LOGIC.md` got a new "Paycheck estimator" section.
+  `docs/ROADMAP.md` updated the "explicitly aren't doing" line to clarify
+  the estimator is in scope as personal-planning, employer-side withholding
+  is not.
+
+Known limitations and follow-ups:
+- The user-rate states (NY/MD/DC/VA + NJ-MFJ/HoH, CT-MFJ/HoH, VT-MFJ/HoH)
+  need their 2026 bracket thresholds pulled directly from the state
+  withholding PDFs (NYS-50-T-NYS, NJ withholding rate tables, etc.). Each
+  one is a small follow-up that flips that filing-status entry from
+  `'user-rate'` to `'brackets'`.
+- A few addon rates carry TODO comments pending verification (NJ SUI,
+  PA SUI, MA personal exemption, DE/VT intermediate thresholds).
+- The owed CONTEXT entries flagged in the handover (bootstrap fix, 0.5b,
+  half-day-a, half-day-b, Juan migration) are still pending and best
+  absorbed into the 0.5c commit per the original plan.
+
 ### June 17, 2026: 0.4 membership-scoped storage cutover
 
 Moved entries and pays off user_id-scoped storage and onto membership-scoped

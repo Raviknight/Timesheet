@@ -136,7 +136,10 @@
           <label style="margin:0">Filter year</label>
           <select id="payYearFilter" style="width:auto"></select>
         </div>
-        <button class="btn btn-primary" id="btnAddPay">+ Add Paycheck</button>
+        <div class="row" style="gap:6px">
+          <button class="btn" id="btnEstimate">Estimate</button>
+          <button class="btn btn-primary" id="btnAddPay">+ Add Paycheck</button>
+        </div>
       </div>
       <div class="stat-grid">
         <div class="stat"><div class="stat-label">YTD Gross</div><div class="stat-value" id="ytdGross">$0</div></div>
@@ -316,6 +319,80 @@
       <div class="row">
         <button class="btn" id="btnCancelPay">Cancel</button>
         <button class="btn btn-primary" id="btnSavePay">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAYCHECK ESTIMATOR MODAL -->
+<div class="modal-bg" id="estimateModal">
+  <div class="modal">
+    <h2>Paycheck Estimator</h2>
+    <div class="help" style="background:var(--warn-bg);border-left:3px solid var(--warn);padding:8px 10px;border-radius:4px;color:var(--text)">
+      <strong>Estimate only.</strong> Personal-planning tool. Not actual payroll
+      withholding. Tax tables verified for tax year 2026. Do not use for filing.
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div class="grow">
+        <label>Pay frequency</label>
+        <select id="estFrequency"></select>
+      </div>
+      <div class="grow">
+        <label>Gross per period ($)</label>
+        <input type="number" id="estGross" step="0.01" min="0" placeholder="e.g. 2500">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="grow">
+        <label>State</label>
+        <select id="estState"></select>
+      </div>
+      <div class="grow">
+        <label>Filing status</label>
+        <select id="estFiling"></select>
+      </div>
+    </div>
+
+    <div class="row" id="estStateRateRow" style="margin-top:8px;display:none">
+      <div class="grow">
+        <label>Effective state tax rate (%)</label>
+        <input type="number" id="estStateRate" step="0.01" min="0" placeholder="e.g. 6.5">
+        <div class="help">2026 bracket data is pending for this state/filing combination. Enter your own effective rate (look it up on a state-tax calculator or recent paystub).</div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px">
+      <label>Locality</label>
+      <div id="estLocalityBody" style="margin-top:4px"></div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <label style="margin:0">Deductions and contributions</label>
+        <button class="btn btn-sm" id="btnAddDeduction" type="button">+ Add</button>
+      </div>
+      <div id="estDeductionsList" style="margin-top:6px"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px;padding:10px;background:var(--surface-2)">
+      <h3 class="card-title" style="margin-top:0">Breakdown</h3>
+      <div id="estResult"></div>
+    </div>
+
+    <div style="margin-top:10px">
+      <button class="btn-ghost btn-sm" id="btnViewEstimateHistory" type="button">Show history</button>
+      <div id="estimateHistoryPanel" style="display:none;margin-top:8px">
+        <div id="estimateHistoryList"></div>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:space-between;margin-top:14px">
+      <button class="btn" id="btnSaveEstimateTemplate" type="button">Save defaults</button>
+      <div class="row">
+        <button class="btn" id="btnSaveEstimateHistory" type="button">Save to history</button>
+        <button class="btn btn-primary" id="btnCloseEstimate" type="button">Close</button>
       </div>
     </div>
   </div>

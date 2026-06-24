@@ -7,6 +7,7 @@
 
 import { formatMoney, formatMoneyDecimal } from '../core/format.js';
 import { openPayModal } from '../modals/payModal.js';
+import { openEstimateModal } from '../modals/estimateModal.js';
 
 export function renderPaychecks(state) {
   renderPayYears(state);
@@ -64,4 +65,5 @@ function renderPayYears(state) {
 
 export function wirePaychecks(state) {
   document.getElementById('btnAddPay').onclick = () => openPayModal(null, state);
+  document.getElementById('btnEstimate').onclick = () => openEstimateModal();
 }

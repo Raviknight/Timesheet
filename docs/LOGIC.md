@@ -188,6 +188,86 @@ reconciled against them.
 
 Code: `src/ui/paychecks.js`.
 
+## Paycheck estimator
+
+Personal-planning tool to project a take-home figure from a hypothetical gross.
+NOT actual payroll withholding. Hourly rate is never stored. The estimator
+result is clearly labeled an estimate in the UI.
+
+### Inputs
+
+- Per-period gross (typed each time, never persisted)
+- Pay frequency: weekly (52), biweekly (26), semi-monthly (24), or monthly (12)
+- State: one of 12 jurisdictions (PA, MA, NH, DE, RI, VT, NJ, CT, NY, MD, DC, VA)
+- Filing status: single, married filing jointly, head of household
+- Locality (state-conditional): NYC, Yonkers, Philadelphia, Wilmington, PA local
+  EIT rate, MD county rate
+- Deductions list: each row has a name, amount-per-period, and type.
+  Types and their tax treatment:
+    - `pre-tax-401k`        reduces federal + state, NOT FICA
+    - `pre-tax-section125`  reduces federal + state + FICA (HSA, FSA, premiums)
+    - `post-tax`            reduces take-home only
+- State effective rate: only when the state/filing combination is in user-rate
+  mode (caller-supplied), see "Coverage gaps" below
+
+### Calculation flow
+
+For each estimate, the engine:
+
+1. **Annualizes** the per-period gross (× pay periods per year). All bracket
+   math runs against the annual figure, then divides back to per-period. This
+   matches how actual withholding works.
+2. **Federal income tax**: applies the IRS 2026 bracket schedule for the chosen
+   filing status against (annual gross − federal standard deduction − pre-tax
+   deductions that reduce federal). Brackets and standard deductions come from
+   IRS Rev. Proc. 2025-32.
+3. **FICA**: Social Security 6.2% on (annual gross − Section-125 deductions) up
+   to the 2026 wage base of $184,500; Medicare 1.45% on all wages; Additional
+   Medicare 0.9% above the statutory threshold (Single/HoH $200k, MFJ $250k,
+   MFS $125k). 401(k) deferrals do NOT reduce FICA wages.
+4. **State income tax**: in bracket mode, runs the state's progressive schedule
+   against (annual gross − state standard deduction − state pre-tax). Adds any
+   state surtax (e.g., MA 4% over the inflation-adjusted millionaire threshold
+   of $1,107,750 for 2026). In user-rate mode, multiplies state taxable income
+   by the caller-supplied effective rate.
+5. **Payroll add-ons** (state-specific, capped): NJ FLI, NY SDI/PFL, CT/MA
+   PFML, RI TDI.
+6. **Local taxes** (state-specific): NYC, Yonkers (resident surcharge =
+   16.75% of state tax; non-resident = 0.5% of wages), Philadelphia (3.74%
+   resident / 3.43% non-resident), Wilmington (1.25%), PA local EIT, MD county.
+7. **Take-home** = gross − pre-tax − all taxes − post-tax.
+
+### Coverage tiers
+
+Per-filing-status mode chosen by what 2026 data has been verified:
+
+- **Brackets** (full math): PA, MA, NH, DE, RI, VT for all statuses; NJ, CT, VT
+  for single only (their MFJ/HoH thresholds are pending direct verification
+  from the state's official PDF).
+- **User-rate**: NY, MD, DC, VA for all statuses; NJ/CT/VT MFJ and HoH. The UI
+  surfaces an "effective state rate %" input when this mode applies so the
+  result is clearly an estimate against a user-supplied rate.
+
+### Persistence
+
+Two tables, both user-scoped via RLS:
+
+- `estimator_settings` (1-to-1 per user): state, filing status, frequency,
+  locality, deduction template, optional state effective rate. **No gross.**
+- `estimate_history` (append-only): a full inputs+result snapshot per saved
+  estimate, with optional note. Snapshot shape stays meaningful even if engine
+  constants change later.
+
+### Re-verification
+
+Tax data in `src/core/tax.js` is valid for tax year 2026. Re-verify in January
+when new IRS Rev. Proc. and state tables publish. The file's banner comment
+calls this out and `.tax-research-2026.md` (gitignored scratch) has the
+sources used.
+
+Code: `src/core/tax.js`, `src/core/estimator.js`, `src/modals/estimateModal.js`.
+Tests: `scripts/test-tax.mjs`, `scripts/test-estimator.mjs`.
+
 ## Open questions
 
 - The original Excel deducted break strictly on weekdays (`WEEKDAY < 6`). The

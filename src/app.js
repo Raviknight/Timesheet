@@ -28,6 +28,7 @@ import { wireSettings, renderSettings } from './ui/settings.js';
 
 import { initEntryModal } from './modals/entryModal.js';
 import { initPayModal } from './modals/payModal.js';
+import { initEstimateModal } from './modals/estimateModal.js';
 
 import { onAuthChange, signOut } from './auth/session.js';
 import { renderAuth, wireAuth } from './ui/auth.js';
@@ -455,6 +456,7 @@ async function bootApp(session) {
   wireSettings(state, { saveAll });
   initEntryModal(state, rerender);
   initPayModal(state, rerender);
+  initEstimateModal();
   switchView('dashboard', state);
 }
 

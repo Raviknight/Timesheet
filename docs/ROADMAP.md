@@ -92,7 +92,10 @@ every clock event including edits.
 
 ## Things we explicitly aren't doing
 
-- Payroll calculation (taxes, deductions). That's a different product class
-  and a regulatory minefield.
+- Actual payroll withholding (employer-side). The personal-use paycheck
+  estimator added in v5 is a planning tool, not a withholding engine: it
+  produces an estimate the user reads, not a number an employer relies on.
+  Treating the estimator as authoritative withholding is out of scope and the
+  UI labels it as an estimate.
 - Geolocation tracking. Privacy concern, and not needed for office work.
 - Project/task-level time coding. Different product. Maybe a sibling app.
