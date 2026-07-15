@@ -189,12 +189,15 @@ async function loadTimeOffByCompany() {
   const actives = Array.isArray(state.companies)
     ? state.companies.filter(c => c.isActive !== false)
     : [];
-  for (const c of actives) {
+  // One read per non-active company, fired together. Each writes a distinct
+  // company-id key, so concurrent completion cannot race. Runs after the warm-up
+  // read in loadAll, so this is not a cold-start burst.
+  await Promise.all(actives.map(async (c) => {
     const cid = String(c.id ?? '');
-    if (!cid || cid === activeId) continue;
+    if (!cid || cid === activeId) return;
     const types = await Store.get(timeOffKeyFor(cid), null);
     state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
-  }
+  }));
 }
 
 /**
@@ -244,12 +247,15 @@ async function loadEntriesByCompany() {
   const actives = Array.isArray(state.companies)
     ? state.companies.filter(c => c.isActive !== false)
     : [];
-  for (const c of actives) {
+  // One read per non-active company, fired together. Each writes a distinct
+  // company-id key, so concurrent completion cannot race. Runs after the warm-up
+  // read in loadAll, so this is not a cold-start burst.
+  await Promise.all(actives.map(async (c) => {
     const cid = String(c.id ?? '');
-    if (!cid || cid === activeId) continue;
+    if (!cid || cid === activeId) return;
     const entries = await Store.get(entriesKeyFor(cid), null);
     state.entriesByCompany[cid] = entries || {};
-  }
+  }));
 }
 
 /**
@@ -317,19 +323,46 @@ async function handleSessionExpired() {
 
 async function loadAll() {
   setSync('syncing', 'loading…');
-  const schema    = await Store.get(SK.schema, null);
-  const profile   = await Store.get(SK.profile, null);
-  const settings  = await Store.get(SK.settings, null);
-  const timeOff   = await Store.get(SK.timeOff, null);
-  const companies = await Store.get(SK.companies, null);
-  const entries   = await Store.get(SK.entries, null);
-  const pays      = await Store.get(SK.pays, null);
+  const remote = getStorageMode() === 'remote';
+
+  // Wake the database with a single serial read before fanning out. On
+  // Supabase's free tier the first request after an idle pause can take a few
+  // seconds while the project spins up; paying that cost once, in isolation,
+  // avoids a cold-start burst (concurrent reads into a waking DB can fail) and
+  // lets everything after it run warm.
+  let profile = await Store.get(SK.profile, null);
+
+  // A signed-in user always has a profile row (bootstrap guarantees it), so a
+  // null profile in remote mode means the read FAILED (cold start / transient),
+  // not a genuinely empty account. Retry a few times with backoff so a
+  // transient failure self-heals instead of rendering an empty "dud" dashboard
+  // that sticks until a manual reload. Normal case (profile present first try)
+  // adds zero delay.
+  if (remote) {
+    for (let attempt = 0; profile == null && attempt < 3; attempt++) {
+      await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
+      profile = await Store.get(SK.profile, null);
+    }
+  }
+
+  // The remaining top-level reads are independent and the DB is warm now, so
+  // fan them out together instead of a serial waterfall. Store.get never
+  // rejects (each backend catches and returns the fallback), so Promise.all
+  // cannot reject here.
+  const [schema, settings, timeOff, companies, entries, pays] =
+    await Promise.all([
+      Store.get(SK.schema, null),
+      Store.get(SK.settings, null),
+      Store.get(SK.timeOff, null),
+      Store.get(SK.companies, null),
+      Store.get(SK.entries, null),
+      Store.get(SK.pays, null),
+    ]);
 
   // First-run seed should ONLY happen in local mode (no auth).
   // Signed-in (remote) users get a clean empty workspace; their data
   // comes from Supabase or via explicit import.
-  const storageMode = getStorageMode();
-  const isFirstRun = storageMode === 'local' && !schema && !entries && !pays;
+  const isFirstRun = !remote && !schema && !entries && !pays;
 
   state.profile = profile || { ...DEFAULT_PROFILE };
   state.settings = settings || { ...DEFAULT_SETTINGS };
@@ -341,7 +374,6 @@ async function loadAll() {
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
   state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
-  await loadTimeOffByCompany();
 
   if (entries) {
     state.entries = migrateEntries(entries);
@@ -351,7 +383,6 @@ async function loadAll() {
   } else {
     state.entries = {};
   }
-  await loadEntriesByCompany();
 
   if (pays) {
     state.pays = pays;
@@ -360,6 +391,13 @@ async function loadAll() {
   } else {
     state.pays = [];
   }
+
+  // Per-company time-off and entries are two independent fan-outs (each keyed
+  // by a distinct company id). state.companies, state.timeOffTypes, and
+  // state.entries are all set above, which is everything the two loaders read
+  // before their own network calls. The DB is warm by now, so run them
+  // together.
+  await Promise.all([loadTimeOffByCompany(), loadEntriesByCompany()]);
 
   if (isFirstRun) {
     await saveAll();
@@ -436,6 +474,16 @@ async function healActiveCompanyId(userId) {
     + prefix);
 }
 
+/**
+ * Remove the boot loading overlay. Idempotent and never throws. Called once the
+ * dashboard is rendered or the auth screen is shown; a fail-open timeout at
+ * module load also calls it, so the overlay can never leave the app stuck.
+ */
+function hideBootLoading() {
+  const el = document.getElementById('bootLoading');
+  if (el) el.classList.add('hidden');
+}
+
 async function bootApp(session) {
   bootedRemote = true;
   try {
@@ -443,6 +491,7 @@ async function bootApp(session) {
   } catch (e) {
     console.error('Bootstrap failed:', e);
     toast('Failed to set up account: ' + e.message);
+    hideBootLoading();
     return;
   }
   await loadAll();
@@ -458,6 +507,7 @@ async function bootApp(session) {
   initPayModal(state, rerender);
   initEstimateModal();
   switchView('dashboard', state);
+  hideBootLoading();
 }
 
 function showAuthView() {
@@ -468,6 +518,7 @@ function showAuthView() {
   document.getElementById('view-auth').classList.add('active');
   renderAuth();
   updateSignOutVisibility(false);
+  hideBootLoading();
 }
 
 function updateSignOutVisibility(loggedIn) {
@@ -508,4 +559,10 @@ onAuthChange(async (event, session) => {
 init().catch(err => {
   console.error('Failed to initialize:', err);
   toast('Initialization error: ' + err.message);
+  hideBootLoading();
 });
+
+// Fail-open safety net: if boot never reaches bootApp/showAuthView (auth event
+// never fires, an unexpected throw, etc.), reveal the app anyway rather than
+// leaving the spinner up forever. Whatever rendered underneath is shown.
+setTimeout(hideBootLoading, 10000);
