@@ -30,7 +30,7 @@ async function build() {
     bundle: true,
     format: 'iife',
     target: ['es2020'],
-    minify: true,
+    minify: false,
     write: false,
     logLevel: 'info',
   });

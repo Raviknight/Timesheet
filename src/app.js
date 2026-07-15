@@ -189,14 +189,12 @@ async function loadTimeOffByCompany() {
   const actives = Array.isArray(state.companies)
     ? state.companies.filter(c => c.isActive !== false)
     : [];
-  // One read per non-active company, fired together. Each writes a distinct
-  // company-id key, so concurrent completion cannot race.
-  await Promise.all(actives.map(async (c) => {
+  for (const c of actives) {
     const cid = String(c.id ?? '');
-    if (!cid || cid === activeId) return;
+    if (!cid || cid === activeId) continue;
     const types = await Store.get(timeOffKeyFor(cid), null);
     state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
-  }));
+  }
 }
 
 /**
@@ -246,14 +244,12 @@ async function loadEntriesByCompany() {
   const actives = Array.isArray(state.companies)
     ? state.companies.filter(c => c.isActive !== false)
     : [];
-  // One read per non-active company, fired together. Each writes a distinct
-  // company-id key, so concurrent completion cannot race.
-  await Promise.all(actives.map(async (c) => {
+  for (const c of actives) {
     const cid = String(c.id ?? '');
-    if (!cid || cid === activeId) return;
+    if (!cid || cid === activeId) continue;
     const entries = await Store.get(entriesKeyFor(cid), null);
     state.entriesByCompany[cid] = entries || {};
-  }));
+  }
 }
 
 /**
@@ -321,22 +317,13 @@ async function handleSessionExpired() {
 
 async function loadAll() {
   setSync('syncing', 'loading…');
-  // These seven reads are independent: each Store.get resolves whatever it
-  // needs on its own (ts:timeOff and ts:entries re-fetch active_company_id
-  // internally), so there is no cross-read ordering dependency. Firing them
-  // in parallel collapses a seven-deep serial round-trip waterfall into one.
-  // Store.get never rejects (each backend catches and returns the fallback),
-  // so Promise.all cannot reject here.
-  const [schema, profile, settings, timeOff, companies, entries, pays] =
-    await Promise.all([
-      Store.get(SK.schema, null),
-      Store.get(SK.profile, null),
-      Store.get(SK.settings, null),
-      Store.get(SK.timeOff, null),
-      Store.get(SK.companies, null),
-      Store.get(SK.entries, null),
-      Store.get(SK.pays, null),
-    ]);
+  const schema    = await Store.get(SK.schema, null);
+  const profile   = await Store.get(SK.profile, null);
+  const settings  = await Store.get(SK.settings, null);
+  const timeOff   = await Store.get(SK.timeOff, null);
+  const companies = await Store.get(SK.companies, null);
+  const entries   = await Store.get(SK.entries, null);
+  const pays      = await Store.get(SK.pays, null);
 
   // First-run seed should ONLY happen in local mode (no auth).
   // Signed-in (remote) users get a clean empty workspace; their data
@@ -354,6 +341,7 @@ async function loadAll() {
   }
   state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
   state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
+  await loadTimeOffByCompany();
 
   if (entries) {
     state.entries = migrateEntries(entries);
@@ -363,6 +351,7 @@ async function loadAll() {
   } else {
     state.entries = {};
   }
+  await loadEntriesByCompany();
 
   if (pays) {
     state.pays = pays;
@@ -371,12 +360,6 @@ async function loadAll() {
   } else {
     state.pays = [];
   }
-
-  // Per-company time-off and entries are two independent fan-outs (each keyed
-  // by a distinct company id), so they run together. state.companies,
-  // state.timeOffTypes, and state.entries are all set above, which is all the
-  // two loaders read before their own network calls.
-  await Promise.all([loadTimeOffByCompany(), loadEntriesByCompany()]);
 
   if (isFirstRun) {
     await saveAll();
