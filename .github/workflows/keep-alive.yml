@@ -1,0 +1,83 @@
+name: Supabase keep-alive
+
+# Supabase pauses a free-tier project after 7 consecutive days with no API
+# activity. A paused project does not wake on its own: it needs a manual
+# restore from the dashboard, and until then the live site loads to an empty
+# shell. Ravi's normal daily use is enough to prevent this, so the real
+# scenario this covers is a stretch away from the app (vacation, a busy month,
+# a long gap between pay periods).
+#
+# This is NOT a fix for first-query cold-start latency. That is handled in the
+# client by the warm-up-first boot in src/app.js (commit 5714240), which runs
+# the profile read serially with a retry before fanning out. Keeping the
+# project unpaused and making the first query fast are separate problems.
+#
+# Two pings a week leaves a maximum gap of about three days against a
+# seven-day pause window, so a single failed run cannot cause a pause.
+
+on:
+  schedule:
+    # Mondays and Thursdays at 14:17 UTC. Deliberately off the hour: GitHub
+    # queues scheduled jobs at the top of the hour and can delay them
+    # significantly, and the exact minute does not matter here.
+    - cron: '17 14 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ping Supabase REST API
+        run: |
+          set -euo pipefail
+
+          # Read the project config straight out of the app source so this
+          # workflow cannot drift from it. The anon key is public by design
+          # (RLS is the guard, see src/data/supabase.js), so it lives in the
+          # repo rather than in a secret. Masked anyway to keep it out of logs.
+          SRC=src/data/supabase.js
+          URL=$(grep -oP "(?<=const SUPABASE_URL = ')[^']+" "$SRC")
+          KEY=$(grep -oP "(?<=const SUPABASE_ANON_KEY = ')[^']+" "$SRC")
+
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "Could not parse SUPABASE_URL / SUPABASE_ANON_KEY from $SRC."
+            echo "If that file was reformatted, update this grep."
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+
+          # Hit a real table, not the PostgREST root. The root serves a cached
+          # OpenAPI document and may not touch Postgres at all, which would
+          # make this a no-op. Anonymous select on profiles is blocked by RLS
+          # and returns an empty array, but the query still executes against
+          # the database, which is what counts as activity.
+          STATUS=$(curl -sS -o /tmp/keepalive.out -w '%{http_code}' \
+            --max-time 30 --retry 3 --retry-delay 10 --retry-connrefused \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY" \
+            "$URL/rest/v1/profiles?select=user_id&limit=1")
+
+          echo "HTTP $STATUS"
+          echo "body: $(head -c 200 /tmp/keepalive.out)"
+
+          # Fail loudly on anything unexpected. A keep-alive that silently
+          # stopped working is worse than not having one, because the project
+          # pauses and nobody finds out until the site is dead. A failed run
+          # emails the repo owner.
+          if [ "$STATUS" != "200" ]; then
+            echo "Expected HTTP 200, got $STATUS. The project may be paused"
+            echo "already, or the anon key may have been rotated."
+            exit 1
+          fi
+
+          echo "Supabase project reachable, pause timer reset."
