@@ -207,11 +207,44 @@ addition once we know where modal close handlers live.
   fewer hours. Already-saved paychecks keep their stored `hours` value until
   re-pulled.
 
-- **Caveat: nothing in this session was run locally.** No Node on the
-  Windows machine (`npm` not on PATH, no install in the usual locations),
-  same constraint noted in 057c662. Both changes are reasoned, not executed.
-  Next session with Node available should run `node scripts/test-coverage.mjs`
-  and `npm run build`.
+- **Node IS available locally, via Anaconda. Verify before pushing.** Both
+  changes above were pushed unverified on the belief that this machine had no
+  Node, the same claim made in 057c662, which is how that commit broke the
+  live site. The belief was wrong. Node is not on PATH and not under Program
+  Files, but it lives in the conda envs under `C:\Users\Rsharma\.conda\envs`
+  (NOT in the `C:\ProgramData\Anaconda3` root, whose `envs` dir is empty):
+  `pmtracker-build` has node v24.13.0 + npm 11.6.2, `forge` has node v26.5.1.
+  To run anything here:
+
+  ```
+  $env:PATH = "$env:USERPROFILE\.conda\envs\pmtracker-build;$env:USERPROFILE\.conda\envs\pmtracker-build\Scripts;$env:PATH"
+  npm ci            # node_modules is gitignored and starts empty
+  npm run build
+  node scripts/test-coverage.mjs
+  ```
+
+  Retro-verified after the fact, all green: 37/37 coverage self-tests
+  (including the three new Unpaid assertions), 113/113 accrual, plus clock,
+  payPeriod, round-flag, and tax suites. Build produces a 378.9 KB
+  `dist/timesheet.html`. Serving `dist/` and loading it confirmed the
+  MINIFIED bundle boots: no console errors, `window.handleSignOut` resolves
+  to a function, and the auth view renders.
+
+- **The injection hardening was load-bearing, not theoretical.** Measured on
+  the real minified bundle: it contains TWO `$&` sequences. Under the old
+  string replacement each expands to the matched
+  `<script type="module" src="src/app.js"></script>` tag, splicing 48 chars
+  of HTML into the middle of the JavaScript at two points (a measured 92-char
+  delta, exactly 2 x (48 - 2)). That is a hard parse error, which would have
+  presented as the familiar failure: static shell renders, app is a dud.
+  Flipping `minify: true` WITHOUT the replacement-function fix would have
+  broken the live site. They shipped together in e11c8a2, so Pages is fine.
+
+- **Pre-existing failure, untouched:** `scripts/test-estimator.mjs` fails 1 of
+  36, "PA single no addons". Confirmed present at 5714240 (before this
+  session's work) via a throwaway worktree, so it is not a regression from
+  the Unpaid fix. Stale assertion left behind by 90b6c1e, which added the PA
+  SUI employee addon; the test still expects PA to have no addons.
 
 ### June 20, 2026: bootstrap fix + 0.5b storage cutover + half-day PTO
 
