@@ -161,6 +161,58 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### September 11, 2026: minify re-enabled + Unpaid paid-hours fix
+
+- **Build minify restored (commit e11c8a2).** `minify: true` came back in
+  `scripts/build.mjs`. It had been off since b14c852, which reverted 057c662
+  wholesale; that revert was aimed at the parallelized boot in the same
+  commit, and the minify half was innocent collateral. The boot work was
+  redone correctly in 5714240, so this was the leftover piece.
+  Also hardened the bundle injection: both the CSS and JS `String.replace`
+  calls now take a replacement FUNCTION, not a string. In a string
+  replacement `$&`, `` $` `` and `$'` are substitution patterns, and minified
+  output carries `$` freely in mangled identifiers (`src/core/format.js`
+  already emits a literal `$` for currency). A bundle containing one of
+  those sequences would be silently corrupted at injection, presenting
+  exactly like the earlier failure: static shell renders, app is a dud.
+
+- **Unpaid days no longer pay 8h (root-cause fix in `src/core/time.js`).**
+  Reported symptom: adding Unpaid to a day ADDED hours to the paycheck.
+  `computeHoursPaid` resolved the time-off type but only ever read
+  `hoursPerDay` and `additive`, never the `unpaid` flag, so Unpaid fell into
+  the same branch as PTO/Sick and a segment-less day returned the type's
+  `hoursPerDay` (8, per `schema.js`). That `hoursPerDay: 8` exists to SIZE
+  the absence for pool math, not to pay for it. The old docstring documented
+  the wrong behavior outright ("non-additive (PTO/SICK/UNPAID)").
+  Fixed at the root so every consumer corrects at once:
+  `if (unpaid) return segHrs;`, placed before the override/additive branches.
+    - Leak sites this closes: pay-period totals (`dashboard.js` ~246), the
+      per-day rows (~402), and Daily Log month totals (`log.js` ~129). None
+      of those had an unpaid guard. The Annual block and Balances already
+      carried their own `t.unpaid` checks, which is why those two read
+      correctly while the period total did not; those guards are now
+      redundant but harmless.
+    - `pullHoursFromLog` in `modals/payModal.js` dropped its unpaid filter.
+      It excluded the WHOLE entry when the code was unpaid, so a mixed day
+      (worked a few hours, took the rest unpaid) pulled 0 instead of the
+      hours actually worked. With the core fixed the filter is unnecessary,
+      and the paycheck pull now agrees with the dashboard.
+    - Regression tests added to `scripts/test-coverage.mjs` section 4/4b:
+      Unpaid pays 0, worked-plus-Unpaid pays the worked hours, and an Unpaid
+      day with an `hoursOverride` still pays only what was worked (that last
+      case used to pay worked + override).
+  Verified the `unpaid` flag survives the Supabase round-trip (`!!t.unpaid`
+  out, `t.unpaid` back, `storage.js`), so the fix fires on live data.
+  Consequence to expect: past periods containing Unpaid days now display
+  fewer hours. Already-saved paychecks keep their stored `hours` value until
+  re-pulled.
+
+- **Caveat: nothing in this session was run locally.** No Node on the
+  Windows machine (`npm` not on PATH, no install in the usual locations),
+  same constraint noted in 057c662. Both changes are reasoned, not executed.
+  Next session with Node available should run `node scripts/test-coverage.mjs`
+  and `npm run build`.
+
 ### June 20, 2026: bootstrap fix + 0.5b storage cutover + half-day PTO
 
 Owed-from-handover entries, captured retroactively on 2026-06-24.

@@ -83,6 +83,22 @@ const mixed = run(11, [
   { date: '2026-02-06', segments: [], timeOff: 'UNPAID' },
 ]);
 mixed.rows.forEach(r => check(`  ${r.code} ${r.date} new==old`, r.new, r.old));
+// Absolute values, not just new==old. Regression for the bug where
+// computeHoursPaid never read the unpaid flag and fell through to the type's
+// hoursPerDay, so a pure unpaid day paid 8h and inflated pay-period totals.
+check('  worked day pays 8 (8.5h less 30m break)', mixed.rows[0].new, 8);
+check('  HOLIDAY additive pays 8', mixed.rows[1].new, 8);
+check('  UNPAID pays 0', mixed.rows[2].new, 0);
+
+// An unpaid day still pays whatever was actually worked that day, and the
+// unpaid portion adds nothing on top, override or not.
+console.log('\n== 4b. unpaid pays worked hours only ==');
+const workedUnpaid = run(11, [
+  { date: '2026-02-09', segments: [{ clockIn: '08:00', clockOut: '12:00' }], timeOff: 'UNPAID' },
+  { date: '2026-02-10', segments: [{ clockIn: '08:00', clockOut: '12:00' }], timeOff: 'UNPAID', hoursOverride: 4 },
+]);
+check('  worked 4h + UNPAID pays 4', workedUnpaid.rows[0].new, 4);
+check('  UNPAID 4h override still pays only the 4 worked', workedUnpaid.rows[1].new, 4);
 
 // ---------------------------------------------------------------------------
 // Half-day override (chunk half-day-a). hours_override sets an explicit

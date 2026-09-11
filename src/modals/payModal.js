@@ -77,14 +77,14 @@ function pullHoursFromLog() {
   const company = companyByName(stateRef, selectedName);
   // Pay date is usually a few days after period end; back off a bit
   const pp = getPayPeriodFor('other', addDays(payDate, -3), company);
-  // Pull paid hours from every entry in the period, excluding only types
-  // flagged as unpaid (which the user isn't paid for).
-  const inPP = Object.values(stateRef.entries).filter(e => {
-    if (e.date < pp.start || e.date > pp.end) return false;
-    if (!e.timeOff) return true;
-    const type = stateRef.timeOffTypes.find(t => t.code === e.timeOff);
-    return !type || type.unpaid !== true;
-  });
+  // Pull paid hours from every entry in the period. Unpaid types need no filter
+  // here: computeHoursPaid already pays an unpaid day its worked segments only,
+  // so a pure unpaid day contributes 0. Filtering the entry out wholesale would
+  // be wrong for a mixed day (worked a few hours, took the rest unpaid), which
+  // must still pull the hours actually worked.
+  const inPP = Object.values(stateRef.entries).filter(
+    e => e.date >= pp.start && e.date <= pp.end
+  );
   // Honor pool coverage so the prefill matches the period totals: an over-pool
   // or pending day pulls 0, covered days pull as before. Coverage is built from
   // the same entries/types being summed.

@@ -185,7 +185,11 @@ export function computeHoursWorked(entry, settings, companies, round = true) {
  *   - Worked-only day: sum of segment hours.
  *   - Time-off type is additive (e.g. HOLIDAY): segment hours + the type's
  *     hoursPerDay. The holiday pay sits on top of any work done that day.
- *   - Time-off type is non-additive (PTO/SICK/UNPAID): segments win when
+ *   - Time-off type is flagged unpaid (UNPAID): worked segments only. An
+ *     unpaid day pays nothing for the time off itself, so the type's
+ *     hoursPerDay is never added and a pure unpaid day is 0. This holds for
+ *     a half-day override too: an unpaid half-day pays only what was worked.
+ *   - Time-off type is non-additive and paid (PTO/SICK): segments win when
  *     present; otherwise the type's hoursPerDay (8 fallback).
  *
  * Use this for totals, balances, and any display that means "hours the
@@ -206,13 +210,21 @@ export function computeHoursPaid(entry, settings, timeOffTypes, companies) {
 
   let baseHrs = 8;
   let additive = false;
+  let unpaid = false;
   if (Array.isArray(timeOffTypes)) {
     const t = timeOffTypes.find(x => x.code === entry.timeOff);
     if (t) {
       baseHrs = t.hoursPerDay ?? 8;
       additive = !!t.additive;
+      unpaid = t.unpaid === true;
     }
   }
+
+  // An unpaid type pays nothing for the time-off portion, by definition. Only
+  // hours actually worked that day are paid, so a pure unpaid day is 0. This
+  // returns before the override/additive branches below: the type's
+  // hoursPerDay exists to size the absence, not to pay for it.
+  if (unpaid) return segHrs;
 
   // A half-day override replaces the type's per-day hours as the time-off
   // portion of the day. When hoursOverride is null this function is
