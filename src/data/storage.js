@@ -164,6 +164,152 @@ export const STORAGE_MODE = new Proxy({}, {
 const writeCache = {};
 
 // ===========================================================================
+// Offline read-through cache
+// ===========================================================================
+//
+// Remote reads swallow their own errors and hand back the caller's fallback,
+// which is normally an empty object or array. That conflates "the server says
+// there is nothing" with "the server could not be reached", and it is exactly
+// how the July cold-start outage turned a working app into an empty shell:
+// several boot reads errored against a waking database, and every one of them
+// came back looking like legitimately empty data.
+//
+// This layer closes that gap. Successful remote reads are mirrored into
+// localStorage, and a read that fails outright is served from that mirror
+// instead of from the empty fallback, so a network blip shows the last known
+// good data rather than a blank app.
+//
+// Anything served from the mirror is STALE by definition, so the key is marked
+// and writes to it are refused until a fresh read succeeds. Refusing is the
+// conservative call: remote writes diff against a load-time snapshot, so
+// writing from a stale baseline risks pushing deletions for rows the server
+// still holds.
+
+const OFFLINE_CACHE_PREFIX = 'ts:cache:';
+
+// Attempts per read: the first try plus retries. A waking Supabase instance
+// usually answers by the second attempt, the same case the boot path already
+// handles for the profile read (commit 5714240).
+const READ_ATTEMPTS = 3;
+const RETRY_BASE_MS = 300;
+
+// Set by any remote read path that failed for a reason other than "no rows".
+// Read and cleared by cachedRemoteGet, its only consumer.
+let readFailed = false;
+
+// Storage keys currently being served from the offline mirror.
+const staleKeys = new Set();
+
+function noteReadFailure(what, error) {
+  readFailed = true;
+  console.error(`[storage] ${what} read failed:`, error);
+}
+
+/** Namespaced cache key, scoped per user so accounts cannot read each other. */
+export function offlineCacheKey(key, userId) {
+  return `${OFFLINE_CACHE_PREFIX}${userId || 'anon'}:${key}`;
+}
+
+function hasLocalStorage() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage !== null;
+  } catch (e) {
+    return false; // node, or a browser with storage disabled
+  }
+}
+
+function readOfflineCache(key, userId) {
+  if (!hasLocalStorage()) return undefined;
+  try {
+    const raw = localStorage.getItem(offlineCacheKey(key, userId));
+    if (raw == null) return undefined;
+    return JSON.parse(raw);
+  } catch (e) {
+    return undefined;
+  }
+}
+
+function writeOfflineCache(key, userId, value) {
+  if (!hasLocalStorage()) return;
+  try {
+    localStorage.setItem(offlineCacheKey(key, userId), JSON.stringify(value));
+  } catch (e) {
+    // Quota or private-mode failures are not worth surfacing. The mirror is an
+    // optimization; losing it costs only the offline fallback.
+  }
+}
+
+/** True when any key is currently being served from the offline mirror. */
+export function isServingStaleData() {
+  return staleKeys.size > 0;
+}
+
+/** Keys currently served from the mirror. For the UI and for tests. */
+export function staleKeyList() {
+  return [...staleKeys];
+}
+
+/** Drop every stale mark. Used when the app forces a full reload. */
+export function clearStaleMarks() {
+  staleKeys.clear();
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Remote read with bounded retry, then offline-cache fallback.
+ *
+ * Returns the fresh value when the read succeeds, the mirrored value when it
+ * does not and a mirror exists, and the caller's fallback when neither is
+ * available (which matches today's behavior on a genuinely cold first run).
+ */
+async function cachedRemoteGet(key, fallback) {
+  const userId = getSignedInUserId();
+
+  for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt++) {
+    readFailed = false;
+
+    // RemoteStore.get catches its own errors, but belt and braces: a throw
+    // escaping to here would otherwise propagate into boot and take the app
+    // down, which is the failure mode this whole layer exists to prevent.
+    let value;
+    try {
+      value = await RemoteStore.get(key, fallback);
+    } catch (e) {
+      noteReadFailure('RemoteStore.get ' + key, e);
+      value = fallback;
+    }
+
+    if (!readFailed) {
+      staleKeys.delete(key);
+      // Mirror real data only. RemoteStore returns the caller's fallback
+      // object by identity when there are genuinely no rows, so this
+      // comparison keeps an empty first run from overwriting a good mirror.
+      if (value !== undefined && value !== fallback) {
+        writeOfflineCache(key, userId, value);
+      }
+      return value;
+    }
+
+    if (attempt < READ_ATTEMPTS) {
+      await sleep(RETRY_BASE_MS * attempt); // 300ms, then 600ms
+    }
+  }
+
+  const cached = readOfflineCache(key, userId);
+  if (cached !== undefined) {
+    staleKeys.add(key);
+    console.warn(
+      `[storage] serving ${key} from offline cache after ${READ_ATTEMPTS} failed attempts`
+    );
+    return cached;
+  }
+
+  console.warn(`[storage] ${key} unavailable and no offline cache; using fallback`);
+  return fallback;
+}
+
+// ===========================================================================
 // LocalStore — browser localStorage backed
 // ===========================================================================
 
@@ -362,7 +508,7 @@ async function readTimeOffTypes(companyId, cacheKey, fallback) {
     .select('*')
     .eq('company_id', companyId);
   if (error) {
-    console.error('[storage] time_off_types read failed:', error);
+    noteReadFailure('time_off_types', error);
     return fallback;
   }
 
@@ -493,7 +639,7 @@ async function readEntries(companyId, cacheKey, fallback) {
     .select('date, segments, time_off, notes, company_id, status, booked_at, created_at, hours_override')
     .eq('company_id', companyId);
   if (error) {
-    console.error('[storage] entries read failed:', error);
+    noteReadFailure('entries', error);
     return fallback;
   }
 
@@ -654,7 +800,7 @@ export const RemoteStore = {
           .select('*')
           .maybeSingle();
         if (error) {
-          console.error('[storage] profile read failed:', error);
+          noteReadFailure('profile', error);
           return fallback;
         }
         if (!data) return fallback;
@@ -673,7 +819,7 @@ export const RemoteStore = {
           .select('data')
           .maybeSingle();
         if (error) {
-          console.error('[storage] settings read failed:', error);
+          noteReadFailure('settings', error);
           return fallback;
         }
         if (!data) return fallback;  // No settings row yet, use defaults
@@ -690,7 +836,7 @@ export const RemoteStore = {
             ' ot_threshold, ot_period'
           );
         if (error) {
-          console.error('[storage] companies read failed:', error);
+          noteReadFailure('companies', error);
           return fallback;
         }
         const rows = data || [];
@@ -758,7 +904,7 @@ export const RemoteStore = {
           .from('pays')
           .select('company_id, date, gross, take_home, hours, company_name');
         if (error) {
-          console.error('[storage] pays read failed:', error);
+          noteReadFailure('pays', error);
           return fallback;
         }
 
@@ -795,7 +941,7 @@ export const RemoteStore = {
       console.warn('[storage] RemoteStore.get not yet implemented for:', key);
       return fallback;
     } catch (e) {
-      console.error('[storage] RemoteStore.get unexpected error for ' + key + ':', e);
+      noteReadFailure('RemoteStore.get ' + key, e);
       return fallback;
     }
   },
@@ -1184,10 +1330,22 @@ function pick() {
 
 export const Store = {
   get(key, fallback) {
-    return pick().get(key, fallback);
+    if (getStorageMode() !== 'remote') return LocalStore.get(key, fallback);
+    return cachedRemoteGet(key, fallback);
   },
   set(key, value) {
-    return pick().set(key, value);
+    if (getStorageMode() !== 'remote') return LocalStore.set(key, value);
+    // Refuse to write a key whose in-memory copy came from the offline mirror.
+    // Remote writes diff against a load-time snapshot, so writing from a stale
+    // baseline can push deletions for rows the server still holds. The caller
+    // (saveKey) already surfaces a false return as a failed save and reloads.
+    if (staleKeys.has(key)) {
+      console.error(
+        `[storage] refusing to write ${key}: showing cached data, not a fresh read`
+      );
+      return Promise.resolve(false);
+    }
+    return RemoteStore.set(key, value);
   },
   del(key) {
     return pick().del(key);

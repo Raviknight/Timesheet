@@ -5,7 +5,7 @@
  * from data/storage.js via the public functions here.
  */
 
-import { STORAGE_MODE } from '../data/storage.js';
+import { STORAGE_MODE, isServingStaleData } from '../data/storage.js';
 
 export function renderTopBar(profile) {
   const nameEl = document.getElementById('userName');
@@ -24,5 +24,12 @@ export function setSync(status, text) {
 }
 
 export function setSyncIdle() {
+  // A remote session serving data from the offline mirror must not read as
+  // "synced". The data on screen is the last known good copy, and writes are
+  // refused until a fresh read succeeds, so say so plainly.
+  if (STORAGE_MODE === 'remote' && isServingStaleData()) {
+    setSync('error', 'offline, showing saved copy');
+    return;
+  }
   setSync('', STORAGE_MODE === 'remote' ? 'synced' : 'saved locally');
 }
