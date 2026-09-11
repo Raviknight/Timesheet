@@ -85,11 +85,9 @@ Trust the plan, not this summary.
 
 What is genuinely left:
 
-- **Step 5.5, legacy backfill:** blocked on a question only Ravi can answer.
-  It is not established the backfill is still needed. Open Paychecks and look
-  for the 2022 Phillips records; if present, mark the step complete. Note the
-  in-app JSON importer is NOT the tool for this, it replaces all data rather
-  than merging.
+- **Step 5.5, legacy backfill:** COMPLETE. Ravi confirmed the 2022 Phillips
+  paychecks are present in the live app, so the history crossed over during the
+  earlier cutover. No script was written and no service_role key was handled.
 - **Step 6, demo seed:** CANCELLED, Ravi does not want it.
 - **Step 9, polish:** loading spinners and error toasts for network failures,
   plus a fresh-account run through in incognito.
@@ -106,12 +104,13 @@ raviknight@outlook.com, not ravismla.
 
 ### Immediate next
 
-1. **Step 5.5 decision.** Confirm whether the legacy backfill is still needed
-   (look for 2022 Phillips paychecks in the app). Mark complete, or build an
-   insert-only sync from `src/data/seed.js` into Supabase.
-2. **Step 9 polish.** Loading spinners and error toasts for network failures.
-   The offline cache landed in Step 5, so the remaining gap is telling the
-   user what happened rather than handling it.
+1. **Step 9 polish**, the only Phase 3 step still open. Loading spinners and
+   error toasts for network failures, plus a fresh-account run through in
+   incognito. The offline cache landed in Step 5, so the remaining gap is
+   telling the user what happened rather than handling it.
+
+With 5.5 confirmed complete and 6 cancelled, Step 9 is all that remains of
+Phase 3.
 
 Both 3e.5 and 3e.7 are DONE (commits `2b08341`, and the `feat(3e.7)` series).
 They sat in this list as "immediate next" long after shipping.

@@ -302,7 +302,14 @@ Tasks:
 test accounts; each should see only their own data.
 
 ### STEP 5.5 — Legacy Excel import (one-off script)
-**Status:** Not started
+**Status:** COMPLETE (confirmed 2026-09-11). No script was ever needed. Ravi
+verified from the live app that the 2022 through early-2025 Phillips paychecks
+are present in his Supabase account, so the historical data crossed over during
+the earlier cutover. Nothing further to do here.
+
+The analysis below is kept because it corrects two claims that were wrong and
+would have caused damage if acted on. Do not delete it just because the step
+is closed.
 **Est:** 1 hour, one-off script
 **Where:** local script, not shipped in the app bundle
 
@@ -325,23 +332,29 @@ entries from 2025-12-29) and `SEED_PAYS` (88 pay records, 2022 through 2026).
 There is no `.xlsx` file in the repo at all. So the remaining work is not a
 spreadsheet parse, it is a careful insert-only sync from seed.js to Supabase.
 
-**Open question blocking this step:** it is not established that the backfill
-is still needed. Seed data loads on first run in LOCAL mode only (remote mode
-suppresses it, see `src/app.js`), but Ravi has been running the live app
-against Supabase for months with real paychecks. Whether the historical rows
-made it across is visible only from inside his account. Check before building
-anything: open Paychecks and look for the 2022 Phillips records. If they are
-there, this step is already done and should be marked COMPLETE.
+**Resolved 2026-09-11:** the backfill had already happened. Seed data loads on
+first run in LOCAL mode only (remote mode suppresses it, see `src/app.js`),
+which made it genuinely unclear whether the history survived the cutover. It
+did: Ravi confirmed the 2022 Phillips paychecks are visible in the live app.
+The lesson worth keeping is that the check cost one look at the Paychecks view,
+while the alternative was writing an untestable script that wrote to
+production.
 
 Tasks:
-- [ ] One-off Node script that reads `Time_Sheet_2026.xlsx` (and the
-  2025 legacy data) and writes directly to Supabase
-- [ ] Use the **service_role key** (bypasses RLS; never commit it,
-  pass via env var at runtime)
-- [ ] Target the primary account: raviknight@outlook.com
-- [ ] Map Excel rows to the `entries` and `pays` table shapes
-- [ ] Idempotent: safe to re-run (upsert on the natural keys
-  `(user_id, company_id, date)`)
+All of the following are MOOT: the data was already in Supabase, so no script
+was written and no service_role key was ever handled.
+
+- [~] ~~One-off Node script that reads `Time_Sheet_2026.xlsx` (and the
+  2025 legacy data) and writes directly to Supabase~~ NOT NEEDED
+- [~] ~~Use the **service_role key** (bypasses RLS; never commit it,
+  pass via env var at runtime)~~ NOT NEEDED
+- [~] ~~Target the primary account: raviknight@outlook.com~~ NOT NEEDED
+- [~] ~~Map Excel rows to the `entries` and `pays` table shapes~~ NOT NEEDED
+- [~] ~~Idempotent: safe to re-run (upsert on the natural keys
+  `(user_id, company_id, date)`)~~ NOT NEEDED. Worth noting for any future
+  backfill: upsert is the WRONG choice here. It would overwrite edits made in
+  the app since the original import. An insert-only sync that skips existing
+  dates is the safe shape.
 - [ ] Verify counts after run (expected ~128 entries + ~88 pays,
   plus the 2025 legacy rows)
 
