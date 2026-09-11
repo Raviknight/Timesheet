@@ -112,3 +112,72 @@ outgrow GitHub Pages' build/bandwidth limits.
 
 **Reconsider when:** we add a backend (then move frontend to Cloudflare Pages
 and put Workers/D1 alongside).
+
+## D-10: Supabase as the backend, RLS as the security boundary
+
+**Date:** September 11, 2026 (recorded at the close of Phase 3)
+**Status:** Active
+
+Phase 3 replaced localStorage with Supabase as the source of truth for a
+signed-in user. `src/data/storage.js` keeps the D-3 abstraction: `Store`
+dispatches to `RemoteStore` when a session exists and `LocalStore` otherwise,
+so the rest of the app never learns which one it is talking to.
+
+The anon key ships in the client, hardcoded in `src/data/supabase.js`. That is
+deliberate, not an oversight. It is a public identifier; Row-Level Security
+policies in the database are the actual boundary. This is why the planned
+"add SUPABASE_ANON_KEY as a GitHub secret" tasks in Steps 8 and 10 were both
+dropped: a secret would imply a protection it does not provide, and would add
+a second place for the value to drift out of sync.
+
+**Reconsider when:** the app takes on a second tenant. Multi-employee data with
+supervisor approval needs the RLS policies re-derived from scratch, not
+extended. A policy set written for "one user sees their own rows" does not
+generalize to "a supervisor sees their reports' rows" by adding clauses.
+
+## D-11: Writes diff against a load-time snapshot
+
+**Date:** September 11, 2026 (recorded at the close of Phase 3)
+**Status:** Active
+
+Entries, pays, companies and time_off_types are written by diffing the current
+state against a snapshot captured when that key was last read, so a save sends
+only what changed instead of replacing the table.
+
+The consequence worth knowing: **a write is only safe if the snapshot is real.**
+`RemoteStore.set` refuses outright when there is no load-time cache for the
+key, rather than falling back to a full write. Without that guard, a failed
+read followed by a save would diff real data against an empty fallback and
+push deletions for every row.
+
+This is also why the offline cache (D-12) refuses writes for stale keys. The
+two guards cover the same hazard from opposite ends: one catches a missing
+snapshot, the other catches a snapshot that exists but no longer reflects the
+server.
+
+**Reconsider when:** offline editing becomes a requirement. A write queue would
+need real conflict resolution, because replaying a queued diff against a
+snapshot the server has moved past is how data gets lost rather than merely
+shown stale.
+
+## D-12: Offline reads serve a cache, offline writes are refused
+
+**Date:** September 11, 2026
+**Status:** Active
+
+Successful remote reads mirror into localStorage under
+`ts:cache:<userId>:<key>`. A read that fails serves that mirror instead of the
+empty fallback, and the key is marked stale.
+
+The failure this exists to prevent is specific and already happened. Remote
+reads swallow their errors and return the caller's fallback, normally an empty
+object, so "the server says nothing" and "the server is unreachable" were the
+same value. In July a cold-start burst made several boot reads fail, and the
+live site rendered a full account as an empty shell.
+
+Stale keys refuse writes (see D-11), the top bar says "offline, showing saved
+copy" rather than "synced", and a warning toast explains the state on load. An
+app displaying stale pay figures has to say so.
+
+Deliberately excluded: an offline write queue. Showing stale data is
+recoverable; replaying stale writes is not.

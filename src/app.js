@@ -8,7 +8,7 @@
  *   4. Switch to the default landing view
  */
 
-import { Store, STORAGE_MODE, getStorageMode } from './data/storage.js';
+import { Store, STORAGE_MODE, getStorageMode, isServingStaleData, staleKeyList } from './data/storage.js';
 import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
@@ -122,15 +122,34 @@ async function saveAll() {
     if (k === SK.schema) return 'schema';
     return k;
   });
-  toast('Save failed for: ' + friendlyNames.join(', ') + '. Reloading from server.');
+  // Same split as saveKey: offline is a different failure from a rejected
+  // write, and promising a reload we cannot perform would be misleading.
+  if (isServingStaleData()) {
+    toast(
+      'Could not save: ' + friendlyNames.join(', ') + '. You are offline and ' +
+      'viewing a saved copy, so these changes were not stored.',
+      { type: 'error' }
+    );
+    setSync('error', 'offline, showing saved copy');
+    return;
+  }
+
+  toast('Save failed for: ' + friendlyNames.join(', ') + '. Reloading from server.',
+    { type: 'warn' });
 
   try {
     await loadAll();
+    reportStaleLoad();
     rerender();
     setSyncIdle();
   } catch (e) {
     console.error('Revert reload failed:', e);
     setSync('error', 'reload failed');
+    toast(
+      'Could not reload from the server either. Your view may be out of date. ' +
+      'Check your connection and refresh the page.',
+      { type: 'error' }
+    );
   }
 }
 
@@ -154,7 +173,23 @@ async function saveKey(key, value, friendlyName) {
 
   const ok = await Store.set(key, value);
   if (!ok) {
-    toast(`${friendlyName} save failed. Reloading from server.`);
+    // Distinguish the two reasons a write can be refused, because the right
+    // response differs. If the storage layer is serving a cached copy, the
+    // server is unreachable: reloading would just re-serve the same cache, and
+    // telling the user "reloading from server" would be a plain lie. Say what
+    // happened and what it means for their edit.
+    if (isServingStaleData()) {
+      toast(
+        `Could not save ${friendlyName}. You are offline and viewing a saved ` +
+        `copy, so editing is disabled until the connection is back. Your ` +
+        `change was not stored.`,
+        { type: 'error' }
+      );
+      setSync('error', 'offline, showing saved copy');
+      return false;
+    }
+
+    toast(`${friendlyName} save failed. Reloading from server.`, { type: 'warn' });
     try {
       await loadAll();
       rerender();
@@ -162,6 +197,11 @@ async function saveKey(key, value, friendlyName) {
     } catch (e) {
       console.error('Revert reload failed:', e);
       setSync('error', 'reload failed');
+      toast(
+        'Could not reload from the server either. Your view may be out of ' +
+        'date. Check your connection and refresh the page.',
+        { type: 'error' }
+      );
     }
     return false;
   }
@@ -475,6 +515,26 @@ async function healActiveCompanyId(userId) {
 }
 
 /**
+ * Tell the user when the app came up on cached data rather than live data.
+ *
+ * Without this the degraded state is nearly invisible: the numbers look
+ * normal, the only hint is a small top-bar label, and the first sign of
+ * trouble is a save silently refusing. That is the same class of problem as
+ * the July outage, where a failed load rendered as ordinary empty data. An
+ * app showing stale figures has to say so, because the figures are about pay.
+ */
+function reportStaleLoad() {
+  if (!isServingStaleData()) return;
+  console.warn('[boot] stale keys served from cache:', staleKeyList());
+  toast(
+    'Could not reach the server. Showing the last saved copy of your data, ' +
+    'which may be out of date. Editing is disabled until the connection is ' +
+    'back.',
+    { type: 'warn' }
+  );
+}
+
+/**
  * Remove the boot loading overlay. Idempotent and never throws. Called once the
  * dashboard is rendered or the auth screen is shown; a fail-open timeout at
  * module load also calls it, so the overlay can never leave the app stuck.
@@ -495,6 +555,7 @@ async function bootApp(session) {
     return;
   }
   await loadAll();
+  reportStaleLoad();
   await healActiveCompanyId(session.user.id);
   renderTopBar(state.profile);
   updateSignOutVisibility(true);

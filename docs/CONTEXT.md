@@ -104,13 +104,16 @@ raviknight@outlook.com, not ravismla.
 
 ### Immediate next
 
-1. **Step 9 polish**, the only Phase 3 step still open. Loading spinners and
-   error toasts for network failures, plus a fresh-account run through in
-   incognito. The offline cache landed in Step 5, so the remaining gap is
-   telling the user what happened rather than handling it.
+1. **Fresh-account incognito run through. This one is Ravi's**, because it
+   needs an account signup and a password, which Claude will not do on
+   someone's behalf. It is the last open item in all of Phase 3, and it is
+   worth doing rather than waving through: it is the only path that exercises
+   `ensureBootstrapped` end to end, and every other test so far has run against
+   an account bootstrapped months ago. Steps are in PHASE_3_PLAN.md Step 9.
 
-With 5.5 confirmed complete and 6 cancelled, Step 9 is all that remains of
-Phase 3.
+**Phase 3 is otherwise complete.** Steps 1 through 5.5, 8, 9 and 10 are done;
+Step 6 was cancelled; Step 7 was always a superseded stub. After that run
+through, the next work is the deferred backlog below rather than the plan.
 
 Both 3e.5 and 3e.7 are DONE (commits `2b08341`, and the `feat(3e.7)` series).
 They sat in this list as "immediate next" long after shipping.
@@ -174,6 +177,46 @@ close any open modals before calling showAuthView. One-line
 addition once we know where modal close handlers live.
 
 ## Session log
+
+### September 11, 2026 (Step 9): network failures made legible
+
+Phase 3 closed out except the fresh-account run through, which needs Ravi.
+
+- **Loading states were already done.** The boot overlay from 5714240 holds
+  until the first load finishes, is idempotent, and fails open on a timeout.
+  Subsequent loads use the top-bar sync indicator. Nothing to add; the task was
+  stale rather than outstanding.
+
+- **Error toasts for network failures.** The offline cache made failures
+  survivable but silent: console warnings only, plus a small top-bar label. Now
+  three paths speak up. Boot on cached data warns the figures may be out of
+  date and that editing is off. A refused save says the change was not stored,
+  instead of the old message promising a reload that cannot happen while
+  offline. A failed revert-reload admits the view may be stale rather than
+  failing quietly.
+
+- **`toast()` grew a type and a duration.** The old fixed 2 seconds is right
+  for "Saved" and far too short for a sentence explaining why editing is
+  disabled. Failure toasts default to 6 seconds, wrap, and cancel any pending
+  timer so an earlier confirmation cannot cut them off.
+
+- **Dark mode caught a real bug before it shipped.** The first version styled
+  failure toasts with white text. In this palette `--danger` and `--warn` are
+  FOREGROUND colors that invert per theme (dark red in light mode, pale pink in
+  dark), with `--danger-bg`/`--warn-bg` as their partners. White on dark mode's
+  pale `--danger` would have been unreadable. Fixed to pair the variables, and
+  verified computed colors in both schemes.
+
+- **Not verified:** toast sizing at real viewport widths. The preview pane
+  reports `innerWidth: 0`, which collapses `min(520px, calc(100vw - 40px))` to
+  zero and makes the measurement meaningless. `CSS.supports` confirms the
+  declaration is valid and the colors checked out, but the wrap width itself is
+  unconfirmed. Worth a glance on a phone.
+
+- **DECISIONS.md gained D-10, D-11, D-12**, covering Supabase and why the anon
+  key is deliberately not a secret, diff-against-snapshot writes and why a
+  missing snapshot must refuse rather than full-write, and the offline cache
+  including why there is no write queue.
 
 ### September 11, 2026 (later): keep-alive, offline cache, doc reconciliation
 

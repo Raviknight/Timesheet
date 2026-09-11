@@ -405,16 +405,42 @@ Tasks:
 **Deliverable:** `git push` → site live in 60 seconds with full Supabase backend.
 
 ### STEP 9 — Polish + testing
-**Status:** Not started
+**Status:** COMPLETE except the fresh-account run through, which needs Ravi
 **Est:** 1-2 hours
 
 Tasks:
-- [ ] Test full flow with a fresh account in incognito browser
-- [ ] Loading spinners while data loads
-- [ ] Error toasts for network failures
+- [ ] **Test full flow with a fresh account in incognito browser. RAVI MUST DO
+  THIS ONE.** It requires creating an account and entering a password, which
+  Claude will not do on someone's behalf. Worth actually running: it is the
+  only path that exercises `ensureBootstrapped` end to end (profile row,
+  default company, four default time-off types), and every other test here
+  runs against an account that was bootstrapped months ago. What to check: sign
+  up, verify email, land on an empty dashboard rather than an error, confirm a
+  default company and the PTO/Sick/Holiday/Unpaid types exist, add one entry,
+  reload, confirm it persisted.
+- [x] Loading spinners while data loads. Already covered by the boot overlay
+  added in 5714240: it holds until the first load finishes, is idempotent, and
+  has a fail-open timeout so it can never strand the app. Subsequent loads use
+  the top-bar sync indicator ("loading…"), which is the right weight for a
+  refresh that is not blocking the whole screen.
+- [x] Error toasts for network failures (2026-09-11). The offline cache made
+  failures survivable but silent; this makes them legible. `toast()` gained a
+  type and duration, because a 2-second confirmation-length toast is not enough
+  time to read an explanation of why editing is disabled. Three paths now
+  report: boot on cached data warns the data may be out of date, a refused save
+  says the change was not stored rather than claiming a reload, and a failed
+  revert-reload admits the view may be stale. Colors pair `--danger`/`--warn`
+  with their `-bg` variants so they stay readable in dark mode, where those
+  foreground values invert to pale shades.
 - [ ] ~~"Forgot password" link in login screen~~ DEFERRED (personal-use-first)
 - [ ] ~~Email templates customization in Supabase (welcome email, password reset)~~ DEFERRED (personal-use-first)
-- [ ] Update CLAUDE.md, CONTEXT.md, DECISIONS.md with Phase 3 outcome
+- [x] Update CLAUDE.md, CONTEXT.md, DECISIONS.md with Phase 3 outcome
+  (2026-09-11). CLAUDE.md and AGENTS.md: corrected module map, real test
+  commands, and the conda PATH prefix. CONTEXT.md: status reconciled, stale
+  "immediate next" entries cleared. DECISIONS.md: added D-10 (Supabase and why
+  the anon key is not a secret), D-11 (diff-against-snapshot writes and why a
+  missing snapshot must refuse rather than full-write), D-12 (offline cache,
+  and why there is no write queue).
 
 **Deliverable:** Ready to share with first beta user.
 
