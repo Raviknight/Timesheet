@@ -240,11 +240,21 @@ addition once we know where modal close handlers live.
   Flipping `minify: true` WITHOUT the replacement-function fix would have
   broken the live site. They shipped together in e11c8a2, so Pages is fine.
 
-- **Pre-existing failure, untouched:** `scripts/test-estimator.mjs` fails 1 of
-  36, "PA single no addons". Confirmed present at 5714240 (before this
-  session's work) via a throwaway worktree, so it is not a regression from
-  the Unpaid fix. Stale assertion left behind by 90b6c1e, which added the PA
-  SUI employee addon; the test still expects PA to have no addons.
+- **Stale estimator assertion fixed, suite now fully green.**
+  `scripts/test-estimator.mjs` had been failing 1 of 36 on "PA single no
+  addons". Confirmed pre-existing at 5714240 via a throwaway worktree, so it
+  was never a regression from the Unpaid work. Cause: 90b6c1e added the PA
+  employee UC contribution (`PA_SUI`, 0.07% of all wages, no cap) and updated
+  `test-tax.mjs`, but missed this file, which still asserted PA had zero
+  addons. The addon is correct, PA genuinely levies an employee-side UC
+  contribution, so the TEST was wrong, not the code. Verified against the
+  engine: $52K gross gives $36.40/yr, $1.40 per period. The assertion now
+  checks the addon is present, is `PA_SUI`, and matches both the annual and
+  per-period figures, rather than merely counting addons.
+
+  **Whole suite is green as of this session:** accrual 113, coverage 37,
+  tax 69, estimator 39, plus clock, payPeriod, and round-flag. Worth keeping
+  it that way; a red suite hides the next real regression.
 
 ### June 20, 2026: bootstrap fix + 0.5b storage cutover + half-day PTO
 

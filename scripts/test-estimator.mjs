@@ -42,9 +42,17 @@ check('PA single SS annual', r1.annual.socialSecurity, 52000 * 0.062);
 check('PA single Medicare annual', r1.annual.medicare, 52000 * 0.0145);
 // State PA: 52000 × 0.0307 = $1,596.40/yr
 check('PA single state annual', r1.annual.stateTax, 52000 * 0.0307);
-// No locals, no addons
+// No locals. PA does carry one employee-side addon: the UC contribution
+// (PA_SUI) at 0.07% on all wages with no cap, added in 90b6c1e. That commit
+// updated test-tax.mjs but not this file, so the old "no addons" assertion
+// went stale and this suite has been red since.
+// 52000 * 0.0007 = $36.40/yr, $1.40 per period.
 check('PA single local total', r1.localTax, 0);
-eq('PA single no addons', r1.payrollAddons.length === 0);
+eq('PA single has exactly one addon', r1.payrollAddons.length === 1);
+const paSui = r1.payrollAddons.find(a => a.code === 'PA_SUI');
+eq('PA single addon is PA_SUI', !!paSui);
+check('PA SUI annual', r1.annual.payrollAddons, 52000 * 0.0007);
+check('PA SUI per-period', paSui.amount, (52000 * 0.0007) / 26);
 
 // 2. PA + Philadelphia resident: state 3.07% + Philly 3.74%
 console.log('\n== 2. PA + Philadelphia resident ==');
