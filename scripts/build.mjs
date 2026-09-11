@@ -30,7 +30,7 @@ async function build() {
     bundle: true,
     format: 'iife',
     target: ['es2020'],
-    minify: false,
+    minify: true,
     write: false,
     logLevel: 'info',
   });
@@ -42,9 +42,13 @@ async function build() {
   console.log('Reading HTML shell...');
   let html = await readFile(path.join(ROOT, 'index.html'), 'utf8');
 
-  // Strip the external CSS/JS links
-  html = html.replace(/<link\s+rel="stylesheet"\s+href="assets\/styles\.css">/, '<style>\n' + css + '\n</style>');
-  html = html.replace(/<script\s+type="module"\s+src="src\/app\.js"><\/script>/, '<script>\n' + js + '\n</script>');
+  // Strip the external CSS/JS links.
+  // Replacement is passed as a function, not a string: in a string replacement
+  // "$&", "$'" and "$`" are substitution patterns, and minified bundles contain
+  // "$" freely (mangled identifiers, currency literals). A function return value
+  // is inserted verbatim, so the bundle can never be corrupted on injection.
+  html = html.replace(/<link\s+rel="stylesheet"\s+href="assets\/styles\.css">/, () => '<style>\n' + css + '\n</style>');
+  html = html.replace(/<script\s+type="module"\s+src="src\/app\.js"><\/script>/, () => '<script>\n' + js + '\n</script>');
 
   console.log('Writing dist/...');
   if (!existsSync(path.join(ROOT, 'dist'))) {
