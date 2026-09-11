@@ -285,7 +285,17 @@ Tasks:
   profile/settings writes; entries/pays writes pending in 5c.2-5c.4)
 - [~] Handle loading states (data now arrives async) — basic syncing
   indicator wired; loading spinners deferred to Step 9
-- [ ] Offline handling: if network fails, fall back to localStorage cache + retry
+- [x] Offline handling: if network fails, fall back to localStorage cache +
+  retry (2026-09-11). Successful remote reads mirror into localStorage under
+  `ts:cache:<userId>:<key>`; a failing read retries three times then serves the
+  mirror instead of the empty fallback. Keys served from the mirror are marked
+  stale and refuse writes, because remote writes diff against a load-time
+  snapshot and a stale baseline can push deletions for rows the server still
+  holds. The top bar says "offline, showing saved copy" rather than "synced".
+  Covered by `scripts/test-offline-cache.mjs` (19 assertions).
+  NOT included: an offline write queue. Replaying queued writes against a
+  diff-based snapshot is a real conflict-resolution problem, and getting it
+  wrong loses data rather than merely showing stale data.
 - [x] First-login: create profile, default company, default time-off types
 
 **Deliverable:** All app data flows through Supabase. Test by signing up two
@@ -296,14 +306,32 @@ test accounts; each should see only their own data.
 **Est:** 1 hour, one-off script
 **Where:** local script, not shipped in the app bundle
 
-One-off script (or use the in-app JSON importer at Settings → Data →
-Import JSON) to bulk-load Ravi's 2025 Excel data plus the 128 entries
-from `Time_Sheet_2026.xlsx` into the raviknight@outlook.com Supabase
-workspace. Decide on script-vs-importer when approaching this step.
-This supersedes the old Step 7 (which assumed a separate in-app
-import step); the JSON importer already exists, so the only open
-question is bulk script vs. manual importer for the historical
-backfill.
+One-off script to bulk-load Ravi's 2025 data plus the 128 entries from
+`Time_Sheet_2026.xlsx` into the raviknight@outlook.com Supabase workspace.
+This supersedes the old Step 7, which assumed a separate in-app import step.
+
+**Correction (2026-09-11): do NOT use the in-app JSON importer for this.**
+An earlier draft of this step offered it as the easy option. It is not. The
+importer at Settings → Data → Import REPLACES all current data: it confirms
+with "This will REPLACE all current data" and then overwrites profile,
+settings, timeOffTypes, companies, entries and pays wholesale. Pointing it at
+a historical file would destroy everything logged since the cutover. It is an
+export/restore tool, not a merge tool. A backfill needs insert-only semantics
+that skip dates already present.
+
+**Also note:** the source data is no longer trapped in Excel. The full legacy
+set already lives in `src/data/seed.js` as JSON: `SEED_ENTRIES` (128 daily
+entries from 2025-12-29) and `SEED_PAYS` (88 pay records, 2022 through 2026).
+There is no `.xlsx` file in the repo at all. So the remaining work is not a
+spreadsheet parse, it is a careful insert-only sync from seed.js to Supabase.
+
+**Open question blocking this step:** it is not established that the backfill
+is still needed. Seed data loads on first run in LOCAL mode only (remote mode
+suppresses it, see `src/app.js`), but Ravi has been running the live app
+against Supabase for months with real paychecks. Whether the historical rows
+made it across is visible only from inside his account. Check before building
+anything: open Paychecks and look for the 2022 Phillips records. If they are
+there, this step is already done and should be marked COMPLETE.
 
 Tasks:
 - [ ] One-off Node script that reads `Time_Sheet_2026.xlsx` (and the
@@ -321,7 +349,10 @@ Tasks:
 Supabase account, independent of the in-app importer.
 
 ### STEP 6 — Demo seed for logged-out visitors
-**Status:** DEFERRED until first non-Ravi user is invited
+**Status:** CANCELLED (2026-09-11). Ravi: "We don't need demo seed data."
+Do not action this step. If the project ever moves toward outside users, the
+underlying concern (a logged-out visitor seeing Ravi's real data) should be
+re-examined from scratch rather than by reviving this checklist.
 **Est:** 1 hour, code + data
 
 Tasks:
@@ -375,17 +406,39 @@ Tasks:
 **Deliverable:** Ready to share with first beta user.
 
 ### STEP 10 — Keep-alive GitHub Action
-**Status:** Not started
+**Status:** COMPLETE (2026-09-11, commit 33c289b)
 **Est:** 10 min
 
 Purpose: Prevent Supabase free-tier 7-day inactivity pause.
 
 Tasks:
-- [ ] Add `.github/workflows/keep-alive.yml` that pings the Supabase REST endpoint every 3 days using a cron schedule
-- [ ] Add `SUPABASE_ANON_KEY` as a GitHub repo secret
-- [ ] Confirm first scheduled run succeeds in the Actions tab
+- [x] Add `.github/workflows/keep-alive.yml` that pings the Supabase REST
+  endpoint on a cron schedule. Runs Mondays and Thursdays, so the largest gap
+  is about three days against a seven-day window and one failed run cannot
+  cause a pause.
+- [ ] ~~Add `SUPABASE_ANON_KEY` as a GitHub repo secret~~ NOT NEEDED. The
+  workflow greps the URL and anon key out of `src/data/supabase.js`, which is
+  the single source of truth and cannot drift from the app. The anon key is
+  public by design (RLS is the guard), consistent with the Step 8 decision.
+  The job masks it in logs anyway.
+- [x] Confirm the ping succeeds: verified against the live project before
+  merge, HTTP 200 with body `[]`.
 
 **Deliverable:** Supabase project stays awake without manual weekly visits.
+
+Notes for whoever touches this next:
+- It queries a real table, not the PostgREST root. The root serves a cached
+  OpenAPI document and may never touch Postgres, which would make the whole
+  workflow a silent no-op.
+- Anonymous select on `profiles` is filtered by RLS and returns an empty
+  array, but the query still executes against the database, which is what
+  registers as activity.
+- A non-200 fails the job deliberately, so a keep-alive that quietly stopped
+  working emails the repo owner instead of letting the project pause unnoticed.
+- This does NOT address first-query cold-start latency. That is handled client
+  side by the warm-up-first boot (commit 5714240). Different problem.
+- GitHub disables scheduled workflows after 60 days of repository inactivity,
+  which would silently stop this too.
 
 ## Total estimate
 

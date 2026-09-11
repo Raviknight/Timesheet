@@ -56,14 +56,23 @@ Stick to them unless explicitly told otherwise.
 src/
 ├── app.js              Boot, view switching, top-level wiring
 ├── core/
-│   ├── time.js         Time/date helpers, segment hours math
-│   ├── period.js       Pay period systems (weekly/biweekly/semi/monthly/advanced)
-│   ├── balances.js     PTO/sick pool calculations
+│   ├── time.js         Time/date helpers, segment hours math, paid vs worked
+│   ├── payPeriod.js    Pay period systems (weekly/biweekly/semi/monthly/advanced)
+│   ├── balances.js     PTO/sick pool sums by code
+│   ├── accrual.js      Pool accrual engine (grants, carryover, overdraw)
+│   ├── coverage.js     Bridges accrual to pay: covered days pay, over-pool pays 0
+│   ├── tax.js          Federal/FICA/state tables + employee payroll addons
+│   ├── estimator.js    Paycheck estimator (planning tool, not withholding)
+│   ├── clock.js        One-click clock in/out, open-segment rules
 │   └── format.js       Display formatting, escapeHtml
 ├── data/
-│   ├── storage.js      Persistence abstraction
+│   ├── storage.js      Persistence abstraction + offline read-through cache
+│   ├── supabase.js     Client + public project config (anon key, RLS is guard)
 │   ├── schema.js       Defaults + migrations
-│   └── seed.js         First-run seed data (Ravi's original entries)
+│   ├── bootstrap.js    First-login rows (profile, company, time-off types)
+│   ├── activeCompany.js  Active-company resolution helpers
+│   ├── standardDay.js  Per-company Standard Day resolver
+│   └── seed.js         Legacy data, LOCAL mode first run only (suppressed remote)
 ├── ui/
 │   ├── topbar.js       Top bar with user/sync indicator
 │   ├── tabs.js         Tab switching
@@ -93,9 +102,21 @@ python3 -m http.server  # if Python is handy
 # 3. Build the single-file distribution
 npm run build           # outputs dist/timesheet.html
 
-# 4. Run tests (when added)
-npm test
+# 4. Run tests (nine harnesses, plain node, no runner needed)
+node scripts/test-coverage.mjs      # and test-accrual, test-tax, etc.
 ```
+
+**Node is not on PATH on Ravi's machine.** It lives in a conda env. Prefix
+PATH before running any of the above, or npm/node will appear to be missing:
+
+```bash
+# PowerShell
+$env:PATH = "$env:USERPROFILE\.conda\envs\pmtracker-build;$env:USERPROFILE\.conda\envs\pmtracker-build\Scripts;$env:PATH"
+npm ci        # node_modules is gitignored and starts empty
+```
+
+Run the suites and `npm run build` before pushing: a push to `main` deploys
+straight to GitHub Pages.
 
 ## How to update this doc
 

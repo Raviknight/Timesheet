@@ -3,7 +3,7 @@
 Living document. Updated at the end of every working session so the next
 Claude (or future-you) can pick up without re-reading the whole chat history.
 
-## Current state (as of June 17, 2026)
+## Current state (as of September 11, 2026)
 
 Modular ES-module project that bundles to a single distributable file for
 production. Core features:
@@ -67,20 +67,32 @@ records from `Time_Sheet_2026.xlsx`.
 
 ## What's in flight
 
-**Phase 3 (Supabase migration) is active.** See `docs/PHASE_3_PLAN.md`.
-Steps 1-4, 5a, 5b, 5c.1, and 8 are complete (see Session log for the
-full May 18 narrative). Reads route through Supabase when signed in;
-profile and settings writes persist.
+**Phase 3 (Supabase migration) is essentially done.** See
+`docs/PHASE_3_PLAN.md`, which is the authoritative checklist. Steps 1 through
+5c, 8 and 10 are complete. Reads and writes both route through Supabase when
+signed in, with diff-tracked writes for entries, pays, companies and
+time_off_types.
 
-Steps 5c.2 (entries write), 5c.3 (pays write), 5c.4 (companies +
-time_off_types write) are next. Then Step 7 (legacy data import -
-one-off script to import Ravi's 2025 + 2026 Excel data into
-Supabase using service_role key). Then Step 9 (polish) and Step 10
-(keep-alive Action).
+Write strategy for 5c was Option A: diff-and-write against a module-level
+cache of the last-loaded entries and pays. Profile and settings use upsert by
+user_id, no diff needed.
 
-Write strategy chosen for 5c: Option A (diff-and-write with module-
-level cache of last-loaded entries and pays). Profile and settings
-use upsert by user_id; no diff needed.
+**Careful with step numbers.** This file used to refer to "Step 7 (legacy
+import)" and "Step 9 (polish)", which do not match PHASE_3_PLAN.md. In the
+plan, the legacy import is **Step 5.5**, the demo seed is **Step 6**, Step 7
+is a superseded stub marked do-not-action, and Step 9 is polish and testing.
+Trust the plan, not this summary.
+
+What is genuinely left:
+
+- **Step 5.5, legacy backfill:** blocked on a question only Ravi can answer.
+  It is not established the backfill is still needed. Open Paychecks and look
+  for the 2022 Phillips records; if present, mark the step complete. Note the
+  in-app JSON importer is NOT the tool for this, it replaces all data rather
+  than merging.
+- **Step 6, demo seed:** CANCELLED, Ravi does not want it.
+- **Step 9, polish:** loading spinners and error toasts for network failures,
+  plus a fresh-account run through in incognito.
 
 ## Primary account
 
@@ -92,26 +104,23 @@ raviknight@outlook.com, not ravismla.
 
 ## Next likely tasks
 
-### Immediate next (Phase 3e)
+### Immediate next
 
-1. **3e.5: drop the dead settings JSON fields.** Remove the now-unused
-   user-level pay-period fields (`system`, `startDow`, `biweeklyRef`, `semi1`,
-   `semi2`, `monthlyStart`, `anchorDate`, `cycleDays`) plus the orphaned
-   `otThreshold`, all superseded by the per-company config. Ship a migration
-   so existing stored settings are cleaned up on load.
-2. **3e.7: per-company Standard Day and time-off behind per-company tabs.**
-   Decision recorded: use tabs, one per active company, so each company's
-   Standard Day and time-off types are edited in isolation.
+1. **Step 5.5 decision.** Confirm whether the legacy backfill is still needed
+   (look for 2022 Phillips paychecks in the app). Mark complete, or build an
+   insert-only sync from `src/data/seed.js` into Supabase.
+2. **Step 9 polish.** Loading spinners and error toasts for network failures.
+   The offline cache landed in Step 5, so the remaining gap is telling the
+   user what happened rather than handling it.
+
+Both 3e.5 and 3e.7 are DONE (commits `2b08341`, and the `feat(3e.7)` series).
+They sat in this list as "immediate next" long after shipping.
 
 ### Longer deferred backlog
 
 In rough priority order:
 
-1. **Deploy to GitHub Pages.** README has the steps. Test on Ravi's phone +
-   desktop and confirm sync works through Claude.ai mobile.
-2. **Add unit tests** for `core/time.js` (segment math) and `core/period.js`
-   (period systems). Vitest is the natural pick.
-3. **Add a "Today" quick-add button** that pre-fills date and lets Ravi punch
+1. **Add a "Today" quick-add button** that pre-fills date and lets Ravi punch
    in/out without opening the full modal.
 4. **Export to original Excel format.** Pull `openpyxl` shape into a JS xlsx
    writer (SheetJS) so Ravi can hand the file to his employer.
@@ -127,8 +136,14 @@ In rough priority order:
   but adds dependencies. Revisit if/when we add TypeScript.
 - **TypeScript:** not yet. Add when the project crosses ~30 files or when we
   start the backend.
-- **Tests:** Vitest looks like the right choice (works with ESM out of the
-  box). Not yet set up.
+- **Tests:** no framework, and that is now a deliberate position rather than a
+  gap. There are nine harnesses in `scripts/test-*.mjs` (accrual, clock,
+  coverage, estimator, offline-cache, payPeriod, round-flag, tax,
+  companies-write), all plain node scripts with hand-rolled PASS/FAIL output
+  and a non-zero exit on failure. They need no dependencies and no runner.
+  Vitest would buy watch mode and nicer diffs at the cost of a toolchain; not
+  worth it yet. If it ever is, the harnesses port over almost unchanged.
+  `npm test` is still a stub and should be wired to run all of them.
 
 ## Things to NOT do
 
@@ -160,6 +175,49 @@ close any open modals before calling showAuthView. One-line
 addition once we know where modal close handlers live.
 
 ## Session log
+
+### September 11, 2026 (later): keep-alive, offline cache, doc reconciliation
+
+- **Step 10 keep-alive shipped** (commit 33c289b). See the plan for the full
+  rationale. Short version: it prevents the 7-day free-tier pause, it is not a
+  cold-start latency fix, and it fails loudly on purpose.
+
+- **Step 5 offline handling shipped** (commit 5828464). Remote reads now mirror
+  to localStorage and a failed read serves that mirror instead of an empty
+  fallback, which is the specific gap that let the July outage render a working
+  app as an empty shell. Stale keys refuse writes, because the diff-based write
+  path could otherwise push deletions from a stale baseline. No offline write
+  queue: replaying queued writes against a diff snapshot is a conflict problem
+  that loses data when done wrong, versus merely showing stale data.
+
+- **Step 6 demo seed CANCELLED** at Ravi's direction.
+
+- **Two documentation errors corrected, both of which could have caused harm:**
+  1. This file told the next session that the legacy import was "Step 7" and
+     polish was "Step 9". Neither matches PHASE_3_PLAN.md, where the import is
+     Step 5.5, the demo seed is Step 6, and Step 7 is a superseded stub marked
+     do-not-action. The plan is authoritative.
+  2. Step 5.5 recommended the in-app JSON importer as an easy way to do the
+     historical backfill. That importer REPLACES all data rather than merging.
+     Following that advice would have destroyed everything logged since the
+     Supabase cutover. Corrected in place with the reason spelled out.
+
+- **Also found:** the legacy data is not trapped in Excel at all. It is already
+  in `src/data/seed.js` as JSON (128 entries, 88 pays), and there is no .xlsx
+  in the repo. So Step 5.5 is an insert-only sync, not a spreadsheet parse.
+
+- **`npm test` now runs the suites** via `scripts/run-tests.mjs`, which
+  discovers every `test-*.mjs` and aggregates. It was a stub printing "No tests
+  yet" while nine harnesses sat next to it. All 9 green.
+
+- **Stale entries cleared:** 3e.5 and 3e.7 were still listed as "immediate
+  next" long after shipping; "Deploy to GitHub Pages" was still in the backlog
+  with CI live; the Tests decision still said "not yet set up". CLAUDE.md and
+  AGENTS.md had a module map missing accrual, coverage, tax, estimator, clock,
+  supabase, activeCompany and standardDay, and both told the reader to run
+  `npm test` "when added". Both now document the conda PATH prefix, since two
+  commits this session shipped unverified on the false belief that this machine
+  had no Node.
 
 ### September 11, 2026: minify re-enabled + Unpaid paid-hours fix
 
