@@ -11,8 +11,8 @@
  */
 
 import { ensureEntriesForCompany, saveEntriesForCompany } from '../app.js';
-import { computeHours, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate, resolveBreakMinutes } from '../core/time.js';
-import { resolveStandardDay } from '../data/standardDay.js';
+import { computeHours, computeHoursWorked, computeSegmentHours, entrySegments, fmtDate, padHM, parseDate, resolveBreakMinutes } from '../core/time.js';
+import { resolveStandardDay, computeStandardDayHours } from '../data/standardDay.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { escapeHtml } from '../core/format.js';
 import { setSyncIdle } from '../ui/topbar.js';
@@ -25,6 +25,12 @@ let editingDate = null;
 // entry). The form reads from and writes to THIS company's set; the company
 // picker can still reassign the entry to another company on save.
 let editingCompanyId = null;
+
+// Whether the user typed their own Time-off hours. While false the field
+// tracks the rest of the standard day as segments change, so clocking 2h then
+// taking sick leave fills in 6h without the user doing arithmetic. Once they
+// type a number it is theirs and nothing overwrites it.
+let timeOffHoursDirty = false;
 // True only when the modal was opened from the Daily Log "+ Add Entry" button
 // with no company chosen. In that mode the company picker is required and a
 // company change re-scopes the session + applies the Standard Day prefill.
@@ -84,9 +90,24 @@ export function initEntryModal(state, onAfterSave) {
     updateComputedHours();
   });
 
-  // Duration (full/half day) change: only affects the implied time-off hours,
-  // so refresh the live preview. No segment changes.
-  document.getElementById('eDuration').addEventListener('change', updateComputedHours);
+  // Duration change: only affects the implied time-off hours, so refresh the
+  // live preview. No segment changes. Switching into Partial re-suggests the
+  // rest of the standard day, since any number the user typed for a previous
+  // selection is no longer what they are describing.
+  document.getElementById('eDuration').addEventListener('change', () => {
+    if (document.getElementById('eDuration').value === 'partial') {
+      timeOffHoursDirty = false;
+      refreshSuggestedTimeOffHours();
+    }
+    updateTimeOffRowsVisibility();
+    updateComputedHours();
+  });
+
+  // Typing a number claims the field: it stops tracking the segments.
+  document.getElementById('eTimeOffHours').addEventListener('input', () => {
+    timeOffHoursDirty = true;
+    updateComputedHours();
+  });
 
   // Company change: the per-company break can differ, so refresh the live
   // segment/day hour previews. Does not touch the segments the user entered.
@@ -156,15 +177,37 @@ function loadFormForDate(date) {
     document.getElementById('eNotes').value = existing.notes || '';
     // Existing booking status, defaulting approved for legacy time-off rows.
     document.getElementById('eStatus').value = existing.status || 'approved';
-    // A non-null override means a half day was booked; null/absent is full.
-    document.getElementById('eDuration').value =
-      (existing.hoursOverride != null) ? 'half' : 'full';
+    // Reconstruct the duration from the stored override. Null is a full day.
+    // A value equal to half the type's per-day hours reads back as Half day,
+    // anything else as Partial with the number shown. Both store the same
+    // field, so a half day that happens to match is not a special case.
+    const ovr = existing.hoursOverride;
+    const t = stateRef.timeOffTypes.find(x => x.code === existing.timeOff);
+    const halfOf = ((t?.hoursPerDay ?? 8) / 2);
+    const durSel = document.getElementById('eDuration');
+    const hoursEl = document.getElementById('eTimeOffHours');
+    if (ovr == null) {
+      durSel.value = 'full';
+      hoursEl.value = '';
+      timeOffHoursDirty = false;
+    } else if (Math.abs(ovr - halfOf) < 1e-9) {
+      durSel.value = 'half';
+      hoursEl.value = '';
+      timeOffHoursDirty = false;
+    } else {
+      durSel.value = 'partial';
+      hoursEl.value = Number(ovr).toFixed(2);
+      // A stored value is the user's own, so do not let it drift.
+      timeOffHoursDirty = true;
+    }
   } else {
     modalSegments = defaultSegmentsForDate(date);
     document.getElementById('eTimeOff').value = '';
     document.getElementById('eNotes').value = '';
     document.getElementById('eStatus').value = 'approved';
     document.getElementById('eDuration').value = 'full';
+    document.getElementById('eTimeOffHours').value = '';
+    timeOffHoursDirty = false;
   }
   updateTimeOffRowsVisibility();
 }
@@ -176,6 +219,10 @@ function updateTimeOffRowsVisibility() {
   if (statusRow) statusRow.style.display = hasTimeOff ? '' : 'none';
   const durationRow = document.getElementById('eDurationRow');
   if (durationRow) durationRow.style.display = hasTimeOff ? '' : 'none';
+  // The hours field is only meaningful for a partial day.
+  const hoursRow = document.getElementById('eTimeOffHoursRow');
+  const isPartial = document.getElementById('eDuration').value === 'partial';
+  if (hoursRow) hoursRow.style.display = (hasTimeOff && isPartial) ? '' : 'none';
 }
 
 export function openEntryModal(date, state, context = {}) {
@@ -400,6 +447,9 @@ function renderSegments() {
 }
 
 function updateComputedHours() {
+  // Re-suggest before reading the field, so the preview reflects the segments
+  // the user just edited rather than the previous suggestion.
+  refreshSuggestedTimeOffHours();
   const tmp = {
     date: document.getElementById('eDate').value,
     segments: modalSegments,
@@ -423,10 +473,56 @@ function updateComputedHours() {
 function computeHoursOverride() {
   const code = document.getElementById('eTimeOff').value || null;
   if (!code) return null;
-  const isHalf = document.getElementById('eDuration').value === 'half';
-  if (!isHalf) return null;
+  const duration = document.getElementById('eDuration').value;
+
+  // Partial: the user states the time-off portion outright. This is the only
+  // way to record a day that is part worked and part time off, such as
+  // clocking 2 hours and then taking sick leave for the rest. Full day cannot
+  // express it, because with no override a non-additive type pays the worked
+  // hours and the time off adds nothing (see computeHoursPaid).
+  if (duration === 'partial') {
+    const raw = parseFloat(document.getElementById('eTimeOffHours').value);
+    if (!Number.isFinite(raw) || raw < 0) return null;
+    return Math.round(raw * 4) / 4; // 15-minute granularity, as everywhere else
+  }
+
+  if (duration !== 'half') return null;
   const t = stateRef.timeOffTypes.find(x => x.code === code);
   return t ? (t.hoursPerDay ?? 8) / 2 : null;
+}
+
+/**
+ * Hours of time off that would fill out the rest of the standard day, given
+ * what is currently clocked. Worked 2h of an 8h day leaves 6h.
+ *
+ * Rounded to 15 minutes to match the rest of the time math, and floored at 0
+ * so working past a full day never suggests negative time off.
+ */
+function suggestedTimeOffHours() {
+  const cid = document.getElementById('eCompany')?.value || null;
+  const company = (stateRef.companies || [])
+    .find(c => String(c.id ?? '') === String(cid ?? '')) || null;
+  const stdHours = computeStandardDayHours(
+    resolveStandardDay(stateRef.settings, company),
+    resolveBreakMinutes(stateRef.settings, company)
+  );
+  const worked = computeHoursWorked(
+    { date: document.getElementById('eDate').value, segments: modalSegments, companyId: cid },
+    stateRef.settings, stateRef.companies
+  );
+  return Math.max(0, Math.round((stdHours - worked) * 4) / 4);
+}
+
+/**
+ * Keep the Time-off hours field in step with the segments while the user has
+ * not typed their own value.
+ */
+function refreshSuggestedTimeOffHours() {
+  if (timeOffHoursDirty) return;
+  const el = document.getElementById('eTimeOffHours');
+  if (!el) return;
+  if (document.getElementById('eDuration').value !== 'partial') return;
+  el.value = suggestedTimeOffHours().toFixed(2);
 }
 
 async function saveEntry() {

@@ -271,7 +271,14 @@
         <select id="eDuration">
           <option value="full">Full day</option>
           <option value="half">Half day</option>
+          <option value="partial">Partial (set hours)</option>
         </select>
+      </div>
+      <div class="grow" id="eTimeOffHoursRow" style="display:none">
+        <label for="eTimeOffHours">Time-off hours</label>
+        <input id="eTimeOffHours" type="number" min="0" max="24" step="0.25">
+        <div class="help">Hours of time off on top of the hours worked.
+          Pre-filled with the rest of your standard day.</div>
       </div>
     </div>
     <div class="row" style="margin-top:8px">

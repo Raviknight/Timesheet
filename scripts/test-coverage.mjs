@@ -11,7 +11,7 @@
  *
  * Run with: node scripts/test-coverage.mjs
  */
-import { computeHoursPaid } from '../src/core/time.js';
+import { computeHoursPaid, computeHoursWorked } from '../src/core/time.js';
 import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../src/core/coverage.js';
 
 let pass = 0, fail = 0;
@@ -174,6 +174,44 @@ console.log('\n== D. regression lock (hoursOverride: null whole-day PTO) ==');
   d.rows.forEach(r => check(`  ${r.date} new==old`, r.new, r.old));
   check('D: OLD total (byte-identical)', d.oldSum, 24);
   check('D: NEW total (byte-identical)', d.newSum, 24);
+}
+
+// ---------------------------------------------------------------------------
+// E. Worked part of a day, then took sick leave for the rest.
+//
+// Reported 2026-10-31: clocking 2 hours and taking sick leave gave either 2
+// hours or 8, never both. The cause is not broken arithmetic. A non-additive
+// type with no override pays the worked hours and the time off adds nothing,
+// so a part-worked day can only be expressed with an explicit override.
+// SICK shares the PTO pool, so the time-off portion must draw from that pool
+// and the worked hours must not.
+// ---------------------------------------------------------------------------
+console.log('\n== E. worked 2h then sick for the rest of an 8h day ==');
+{
+  const types = [
+    { code: 'PTO',  label: 'PTO',  poolDays: 11, hoursPerDay: 8, countsAgainstPool: true, additive: false },
+    { code: 'SICK', label: 'Sick', poolDays: 0,  hoursPerDay: 8, countsAgainstPool: true, additive: false, sharedPoolWith: 'PTO' },
+  ];
+  const e = {
+    date: '2026-10-26',
+    segments: [{ clockIn: '07:00', clockOut: '09:00' }],
+    timeOff: 'SICK',
+    hoursOverride: 6,
+  };
+  const { result, coverage } = poolRun(types, [e]);
+  check('E: worked hours', computeHoursWorked(e, settings, companies), 2);
+  check('E: pays 2 worked + 6 sick = 8',
+    paidHoursWithCoverage(e, settings, types, companies, coverage), 8);
+  check('E: pool draws only the 6 sick hours', result.usedHours, 6);
+  check('E: remaining pool', result.availableHours, 11 * 8 - 6);
+  eq('E: the day is covered',
+    coverage['2026-10-26'] && coverage['2026-10-26'].covered === true);
+
+  // The shape the user actually hit: Full day, so no override. The sick leave
+  // contributes nothing and the day pays only what was clocked.
+  const noOverride = { ...e, hoursOverride: null };
+  check('E: with no override the day pays only the 2 worked',
+    computeHoursPaid(noOverride, settings, types, companies), 2);
 }
 
 console.log('\n---- report numbers ----');

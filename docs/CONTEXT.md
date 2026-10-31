@@ -178,6 +178,56 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### October 31, 2026: part-worked time-off days (Partial duration)
+
+Reported: worked 2 hours on Monday then took sick leave, and the app would give
+either 2 hours or 8, never both.
+
+Not a math bug. `computeHoursPaid` resolves a non-additive type with no
+override as `segHrs > 0 ? segHrs : timeOffHrs`, so segments win and the time
+off adds nothing: 2 worked hours plus a Sick code paid 2. Clearing the segments
+paid 8 but threw away the record of having worked. Those were the only two
+reachable outcomes.
+
+The core already supported the right answer through `hoursOverride`, which puts
+the time-off hours ON TOP of worked hours (`paid = worked + override`) and
+draws only that portion from the pool. It was `scripts/test-coverage.mjs`
+section C. **The gap was the UI:** the Duration select offered only Full day
+and Half day, and Half is hardcoded to `hoursPerDay / 2`, so the reachable
+totals were 2, 6, or 8. There was no way to say "6 hours of sick on top of 2
+worked".
+
+- **index.html:** Duration gains "Partial (set hours)", plus a Time-off hours
+  number input (0.25 steps) that shows only for Partial.
+- **src/modals/entryModal.js:** `computeHoursOverride` handles the partial
+  mode. The field pre-fills with the rest of the standard day (standard day
+  hours minus hours clocked, floored at 0, rounded to 15 minutes) and keeps
+  tracking the segments as they are edited, until the user types a number, at
+  which point a dirty flag freezes it. `loadFormForDate` reconstructs the
+  duration from the stored override: null is Full, a value equal to
+  `hoursPerDay / 2` reads back as Half, anything else as Partial with the
+  number shown. Both Half and Partial write the same `hours_override` field, so
+  nothing new was added to the schema or storage.
+- **scripts/test-coverage.mjs:** section E locks the reported case. 2 worked
+  plus 6 sick pays 8, the pool draws exactly 6, worked hours never deplete the
+  balance, and the no-override shape still pays only 2 so the old behavior is
+  pinned rather than silently changed.
+- **docs/LOGIC.md:** new section on part-worked days. The override had no
+  documentation at all, which is part of why the capability was invisible.
+
+Deliberately left alone: selecting a time-off code still clears the segments.
+That is load-bearing, since a new entry pre-fills the Standard Day and a whole
+day off must not pay worked hours. The cost is that the worked segment has to
+be re-added after picking Partial, and the suggested hours update as it is.
+Making the clear conditional on whether the segments came from a saved entry
+would smooth the common path, but it makes converting a worked day into a full
+day off ambiguous, so it was not worth the trade without asking.
+
+Not verified interactively: the entry modal is only reachable behind sign-in,
+so the click-through (option appears, field pre-fills 6.00, preview reads 8.00)
+is unconfirmed. The arithmetic behind the suggestion was checked directly
+(standard day 8h minus 2h worked gives 6) and all 43 coverage assertions pass.
+
 ### September 11, 2026 (Step 9): network failures made legible
 
 Phase 3 closed out except the fresh-account run through, which needs Ravi.

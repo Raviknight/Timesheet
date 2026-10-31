@@ -99,6 +99,48 @@ Four types, two behaviors.
 Code: time-off codes are defined in `src/data/schema.js`
 (`DEFAULT_TIME_OFF_TYPES`).
 
+
+## Part-worked time-off days (the hours override)
+
+A day can be partly worked and partly time off: clock 2 hours, then go home
+sick. Recording that needs the **hours override** (`hours_override` in the
+database, `hoursOverride` in app shape), because the default rules cannot
+express it.
+
+Why the default cannot. For a non-additive type with no override,
+`computeHoursPaid` resolves the day as `segHrs > 0 ? segHrs : timeOffHrs`:
+segments win when present, and the time off adds nothing. So a day with 2
+worked hours and a Sick code pays **2**, not 8. Removing the segments pays 8
+but loses the record of having worked. Those were the only two outcomes
+available before the Partial option existed, which is exactly the "either 2
+hours or 8 hours, not both" complaint.
+
+With an override set, the override hours sit **on top of** the worked hours:
+
+    paid = worked + override
+
+So 2 worked plus a 6-hour override pays 8. The pool draw is
+`computeHoursBenefit` (paid minus worked) = 6, so **only the time-off portion
+depletes the balance and worked hours never do**. Coverage still applies: if
+the pool cannot cover those 6 hours, the time-off portion pays 0 while the 2
+worked hours still pay.
+
+Entering it: in the entry modal pick the time-off code, set Duration to
+**Partial (set hours)**, and the Time-off hours field appears pre-filled with
+the rest of the standard day (standard day hours minus hours clocked, floored
+at 0, rounded to 15 minutes). Typing a number claims the field, so it stops
+tracking the segments. Duration **Half day** is a shorthand for an override of
+`hoursPerDay / 2`; both write the same field.
+
+Note that selecting a time-off code clears the segments, since the common case
+is a whole day off and the modal pre-fills the Standard Day. Re-add the worked
+segment after choosing Partial; the suggested hours update as you do.
+
+Unpaid ignores the override entirely. `computeHoursPaid` returns the worked
+hours for an unpaid type before reaching the override branch, so an unpaid
+half-day pays only what was worked. See `scripts/test-coverage.mjs` sections
+A through E.
+
 ## Time-off pools
 
 Pools track how much PTO / Sick is available, split into Taken, Scheduled, and
