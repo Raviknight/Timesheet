@@ -88,6 +88,23 @@ html, body {
 
 .app { max-width: 960px; margin: 0 auto; padding: 0 0 80px; }
 
+/* Dashboard two-column layout. Single column by default, so phones and narrow
+   windows behave exactly as before; the side column only appears when there is
+   genuinely room for it. The page also widens past its usual 960px at that
+   point, which is the whole reason the side column has space to exist. */
+.dash-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
+@media (min-width: 1100px) {
+  .app { max-width: 1320px; }
+  .dash-grid {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 14px;
+    align-items: start;
+  }
+  /* Follows the page down: the balances are reference data you check while
+     reading the weeks below, which can run much taller than this column. */
+  .dash-side { position: sticky; top: 14px; }
+}
+
 .topbar {
   position: sticky; top: 0; z-index: 50;
   background: var(--surface);
@@ -295,6 +312,23 @@ th {
 .progress-bar { height: 100%; background: var(--primary); transition: width 0.3s; }
 .progress-bar.warn { background: var(--warn); }
 .progress-bar.danger { background: var(--danger); }
+
+/* Shared-pool bar split by the type that drew each hour. Colour carries TYPE
+   here, not severity, so the near/over-pool warning lives on the track as a
+   ring instead of recolouring the fill. */
+.progress-seg { height: 100%; transition: width 0.3s; }
+.progress-seg:not(:last-child) { border-right: 1px solid var(--surface); }
+.progress-near { box-shadow: 0 0 0 1px var(--warn); }
+.progress-over { box-shadow: 0 0 0 1px var(--danger); }
+
+/* Legend chip colour, matching its bar segment. */
+.seg-swatch {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: baseline;
+}
 
 .pp-selector { display: flex; gap: 6px; margin-bottom: 14px; }
 .pp-selector button {

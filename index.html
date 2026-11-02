@@ -61,54 +61,56 @@
   <!-- DASHBOARD VIEW -->
   <div class="view active" id="view-dashboard">
     <div id="ppCompanyTabs"></div>
-    <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <h3 class="card-title" style="margin:0">Annual</h3>
-        <select id="ppAnnualYear" style="font-size:13px;padding:2px 6px"></select>
+    <div class="dash-grid">
+      <div class="dash-main">
+        <div class="card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <h3 class="card-title" style="margin:0">Annual</h3>
+            <select id="ppAnnualYear" style="font-size:13px;padding:2px 6px"></select>
+          </div>
+          <div class="stat-grid" style="margin-top:10px">
+            <div class="stat"><div class="stat-label" id="annActualLabel">Actual hours</div><div class="stat-value" id="annActual">0.00</div><div class="stat-sub">exact, unrounded</div></div>
+            <div class="stat"><div class="stat-label">Holiday + PTO/Sick paid</div><div class="stat-value" id="annPaidTimeOff">0.00</div><div class="stat-sub">hours</div></div>
+            <div class="stat"><div class="stat-label">Total paid hours</div><div class="stat-value" id="annTotalPaid">0.00</div><div class="stat-sub">worked + paid time off</div></div>
+          </div>
+        </div>
+        <div class="card" id="clockControl"></div>
+        <div class="card">
+          <h3 class="card-title">Pay Period</h3>
+          <div class="pp-selector">
+            <button data-pp="current" class="active">Current</button>
+            <button data-pp="last">Last</button>
+            <button data-pp="other">Other</button>
+          </div>
+          <div id="ppOtherPicker" style="display:none">
+            <label>Pick any date in the desired period</label>
+            <input type="date" id="ppOtherDate">
+          </div>
+          <div class="pp-nav">
+            <button type="button" data-pp-step="-1" aria-label="Previous pay period" title="Previous pay period">&lsaquo;</button>
+            <div id="ppRange" class="muted"></div>
+            <button type="button" data-pp-step="1" aria-label="Next pay period" title="Next pay period">&rsaquo;</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">Period Totals</h3>
+          <div class="stat-grid">
+            <div class="stat"><div class="stat-label">Total</div><div class="stat-value" id="ppTotal">0.0</div><div class="stat-sub">hours</div></div>
+            <div class="stat"><div class="stat-label">Regular</div><div class="stat-value" id="ppRegular">0.0</div><div class="stat-sub">hours</div></div>
+            <div class="stat"><div class="stat-label">OT</div><div class="stat-value" id="ppOT">0.0</div><div class="stat-sub">hours</div></div>
+            <div class="stat"><div class="stat-label">Time off</div><div class="stat-value" id="ppTimeOff">0.0</div><div class="stat-sub">hours</div></div>
+            <div class="stat"><div class="stat-label">Holiday</div><div class="stat-value" id="ppHoliday">0.0</div><div class="stat-sub">hours</div></div>
+          </div>
+        </div>
+        <div id="weekBreakdown"></div>
       </div>
-      <div class="stat-grid" style="margin-top:10px">
-        <div class="stat"><div class="stat-label" id="annActualLabel">Actual hours</div><div class="stat-value" id="annActual">0.00</div><div class="stat-sub">exact, unrounded</div></div>
-        <div class="stat"><div class="stat-label">Holiday + PTO/Sick paid</div><div class="stat-value" id="annPaidTimeOff">0.00</div><div class="stat-sub">hours</div></div>
-        <div class="stat"><div class="stat-label">Total paid hours</div><div class="stat-value" id="annTotalPaid">0.00</div><div class="stat-sub">worked + paid time off</div></div>
-      </div>
-    </div>
 
-    <div class="card" id="clockControl"></div>
-
-    <div class="card">
-      <h3 class="card-title">Pay Period</h3>
-      <div class="pp-selector">
-        <button data-pp="current" class="active">Current</button>
-        <button data-pp="last">Last</button>
-        <button data-pp="other">Other</button>
+      <div class="dash-side">
+        <div class="card">
+          <h3 class="card-title">Time-Off Balances (YTD)</h3>
+          <div id="balancesList"></div>
+        </div>
       </div>
-      <div id="ppOtherPicker" style="display:none">
-        <label>Pick any date in the desired period</label>
-        <input type="date" id="ppOtherDate">
-      </div>
-      <div class="pp-nav">
-        <button type="button" data-pp-step="-1" aria-label="Previous pay period" title="Previous pay period">&lsaquo;</button>
-        <div id="ppRange" class="muted"></div>
-        <button type="button" data-pp-step="1" aria-label="Next pay period" title="Next pay period">&rsaquo;</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3 class="card-title">Period Totals</h3>
-      <div class="stat-grid">
-        <div class="stat"><div class="stat-label">Total</div><div class="stat-value" id="ppTotal">0.0</div><div class="stat-sub">hours</div></div>
-        <div class="stat"><div class="stat-label">Regular</div><div class="stat-value" id="ppRegular">0.0</div><div class="stat-sub">hours</div></div>
-        <div class="stat"><div class="stat-label">OT</div><div class="stat-value" id="ppOT">0.0</div><div class="stat-sub">hours</div></div>
-        <div class="stat"><div class="stat-label">Time off</div><div class="stat-value" id="ppTimeOff">0.0</div><div class="stat-sub">hours</div></div>
-        <div class="stat"><div class="stat-label">Holiday</div><div class="stat-value" id="ppHoliday">0.0</div><div class="stat-sub">hours</div></div>
-      </div>
-    </div>
-
-    <div id="weekBreakdown"></div>
-
-    <div class="card">
-      <h3 class="card-title">Time-Off Balances (YTD)</h3>
-      <div id="balancesList"></div>
     </div>
   </div>
 

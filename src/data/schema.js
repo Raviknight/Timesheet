@@ -109,7 +109,50 @@ export const DEFAULT_TIME_OFF_TYPES = [
   { code: 'SICK',    label: 'Sick',    poolDays: 0,  countsAgainstPool: true,  hoursPerDay: 8, additive: false, sharedPoolWith: 'PTO' },
   { code: 'HOLIDAY', label: 'Holiday', poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8, additive: true },
   { code: 'UNPAID',  label: 'Unpaid',  poolDays: 0,  countsAgainstPool: false, hoursPerDay: 8, additive: false, unpaid: true },
+  // Occasional leaves: allotted 0 days because they are granted as needed
+  // rather than accrued, so they are tracked and labelled without a balance.
+  // Paid, non-additive, no pool: a day pays the standard 8 and nothing is
+  // deducted from PTO.
+  { code: 'BEREAVEMENT', label: 'Bereavement', poolDays: 0, countsAgainstPool: false, hoursPerDay: 8, additive: false },
+  { code: 'JURY',        label: 'Jury Duty',   poolDays: 0, countsAgainstPool: false, hoursPerDay: 8, additive: false },
+  // FMLA is a legal protection, not a balance: job-protected leave that is
+  // normally UNPAID unless the employee substitutes accrued PTO or sick time.
+  // Carried here so an absence can be labelled FMLA-protected; the unpaid flag
+  // means it pays only hours actually worked. It deliberately does NOT model
+  // the 12-week entitlement, the rolling 12-month window, or running
+  // concurrently with PTO. Those are a feature, not a type.
+  { code: 'FMLA', label: 'FMLA', poolDays: 0, countsAgainstPool: false, hoursPerDay: 8, additive: false, unpaid: true },
 ];
+
+/**
+ * Add any default time-off type the stored set is missing, matched by code.
+ *
+ * DEFAULT_TIME_OFF_TYPES only reaches an account through bootstrap, so a
+ * company created before a type was added never sees it. This merges the gap
+ * on load.
+ *
+ * Additive and conservative by design: existing types are never modified,
+ * reordered or removed, since the user may have retuned pool days, hours per
+ * day or sharing. Only genuinely absent codes are appended. A type the user
+ * deleted on purpose WILL come back, which is the accepted cost of having
+ * defaults arrive at all.
+ *
+ * @param {object[]|null} stored  types read for a company
+ * @returns {{types: object[], added: string[]}} merged list plus codes added,
+ *          so the caller can decide whether a write back is warranted.
+ */
+export function mergeDefaultTimeOffTypes(stored) {
+  const base = Array.isArray(stored) ? stored : [];
+  const have = new Set(base.map(t => String(t && t.code)));
+  const added = [];
+  const out = base.slice();
+  for (const d of DEFAULT_TIME_OFF_TYPES) {
+    if (have.has(d.code)) continue;
+    out.push(JSON.parse(JSON.stringify(d)));
+    added.push(d.code);
+  }
+  return { types: out, added };
+}
 
 /**
  * Migrate a stored entry to the current shape.

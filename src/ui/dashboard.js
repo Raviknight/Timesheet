@@ -491,6 +491,12 @@ function formatDays(d) {
   return String(dayNum(d));
 }
 
+// Segment colours for a shared pool, assigned by position in the group so the
+// owner always leads. Deliberately excludes --danger, which the track reserves
+// for the near/over-pool state: a type coloured red would be indistinguishable
+// from a warning.
+const POOL_SEG_COLORS = ['--primary', '--purple', '--success', '--warn'];
+
 function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = state.entries, pools = []) {
   const container = document.getElementById('balancesList');
   const entries = Object.values(entriesMap);
@@ -562,8 +568,36 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
 
     const consumed = usedHours + reservedHours;
     const ratio = poolHours > 0 ? consumed / poolHours : 0;
-    const barClass = ratio >= 0.9 ? 'danger' : ratio >= 0.7 ? 'warn' : '';
-    const pct = Math.min(100, Math.max(0, ratio * 100));
+
+    // Split the bar by the type that drew each hour, so a shared pool shows
+    // what actually consumed it rather than one undifferentiated block. The
+    // engine reports draws per booking, so group those by code over the
+    // current cycle. Cycle end is the NEXT cycle's start, hence exclusive.
+    const cycleStart = r.currentCycle ? r.currentCycle.start : null;
+    const cycleEnd = r.currentCycle ? r.currentCycle.end : null;
+    const drawnByCode = new Map();
+    for (const o of (r.overdraw || [])) {
+      if (cycleStart && o.date < cycleStart) continue;
+      if (cycleEnd && o.date >= cycleEnd) continue;
+      drawnByCode.set(o.code, (drawnByCode.get(o.code) || 0) + (o.reservedHours || 0));
+    }
+
+    // One segment per member type, in group order so the owner leads. Widths
+    // are a fraction of the pool; .progress clips any overflow, and the
+    // over-pool hours are spelled out in the help line below rather than
+    // squeezed into a bar that only goes to 100%.
+    const segHtml = group.map((bt, i) => {
+      const h = drawnByCode.get(bt.code) || 0;
+      if (h <= 0) return '';
+      const w = poolHours > 0 ? (h / poolHours) * 100 : 0;
+      return `<div class="progress-seg" style="width:${w}%;background:var(${POOL_SEG_COLORS[i % POOL_SEG_COLORS.length]})"
+        title="${escapeHtml(bt.label)}: ${h.toFixed(1)} h"></div>`;
+    }).join('');
+
+    // Colour now carries type, not severity, so the near-limit warning moves to
+    // the track itself. Without this, splitting the bar would have quietly
+    // dropped the only at-a-glance signal that the pool is nearly gone.
+    const trackClass = ratio >= 1 ? ' progress-over' : ratio >= 0.9 ? ' progress-near' : '';
 
     const sharedLabel = sharedTypes.length
       ? ' + ' + sharedTypes.map(x => escapeHtml(x.label)).join(' + ') + ' (shared)'
@@ -581,8 +615,8 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
           ${poolLabel}
         </span>
       </div>
-      <div class="progress" style="height:8px;display:flex">
-        <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
+      <div class="progress${trackClass}" style="height:8px;display:flex">
+        ${segHtml}
       </div>
       <div class="row" style="margin-top:8px;gap:10px;font-size:12px">
         <span style="color:var(--success)"><strong>${formatDays(availableDaysFrac)}</strong> day${dayNum(availableDaysFrac) === 1 ? '' : 's'}
@@ -607,10 +641,14 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
 
     if (group.length > 1) {
       html += '<div class="help" style="margin-top:6px">';
-      for (const bt of group) {
-        const u = sumHoursForCode(entries, bt.code, 'all', state.settings, timeOffTypes, state.companies);
-        html += `<span class="badge" style="margin-right:6px">${escapeHtml(bt.label)}: ${u.toFixed(1)} h</span>`;
-      }
+      // Reports the SAME cycle-scoped draw the bar segments use. It used to
+      // show an all-time sum, which disagreed with the bar beside it.
+      group.forEach((bt, i) => {
+        const u = drawnByCode.get(bt.code) || 0;
+        html += `<span class="badge" style="margin-right:6px">`
+          + `<span class="seg-swatch" style="background:var(${POOL_SEG_COLORS[i % POOL_SEG_COLORS.length]})"></span>`
+          + `${escapeHtml(bt.label)}: ${u.toFixed(1)} h</span>`;
+      });
       html += '</div>';
     }
     html += '</div>';

@@ -13,6 +13,7 @@ import {
   SK, SCHEMA_VERSION,
   DEFAULT_PROFILE, DEFAULT_SETTINGS, DEFAULT_TIME_OFF_TYPES,
   migrateEntries, migrateCompanies, timeOffKeyFor, entriesKeyFor,
+  mergeDefaultTimeOffTypes,
 } from './data/schema.js';
 import { SEED_ENTRIES, SEED_PAYS, SEED_COMPANIES } from './data/seed.js';
 import { ensureBootstrapped } from './data/bootstrap.js';
@@ -236,8 +237,31 @@ async function loadTimeOffByCompany() {
     const cid = String(c.id ?? '');
     if (!cid || cid === activeId) return;
     const types = await Store.get(timeOffKeyFor(cid), null);
-    state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+    state.timeOffByCompany[cid] = await withDefaultTimeOffTypes(cid, types);
   }));
+}
+
+/**
+ * Resolve a company's time-off types, filling in any default the stored set
+ * predates, and persisting the merge so it happens once rather than every
+ * load.
+ *
+ * The write is best effort on purpose. If it fails (offline, or the storage
+ * layer refusing a write for a stale key) the merged list is still returned,
+ * so the new types are usable this session and the write retries next load.
+ * Nothing downstream depends on them being persisted.
+ */
+async function withDefaultTimeOffTypes(cid, stored) {
+  if (!stored) return JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+  const { types, added } = mergeDefaultTimeOffTypes(stored);
+  if (added.length === 0) return types;
+  console.info(`[types] adding missing defaults for company ${cid}:`, added.join(', '));
+  try {
+    await Store.set(timeOffKeyFor(cid), types);
+  } catch (e) {
+    console.warn('[types] could not persist merged defaults:', e);
+  }
+  return types;
 }
 
 /**
@@ -253,7 +277,7 @@ export async function ensureTimeOffForCompany(companyId) {
     return;
   }
   const types = await Store.get(timeOffKeyFor(cid), null);
-  state.timeOffByCompany[cid] = types || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+  state.timeOffByCompany[cid] = await withDefaultTimeOffTypes(cid, types);
 }
 
 /**
@@ -412,7 +436,23 @@ async function loadAll() {
   if (state.settings.standard_day && 'breakMinutes' in state.settings.standard_day) {
     delete state.settings.standard_day.breakMinutes;
   }
-  state.timeOffTypes = timeOff || JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+  // Active company. Same default-merge as the per-company loader, but through
+  // the plain key, which the remote store resolves to the active company.
+  // Deliberately NOT awaited: the merged list is already in state, and holding
+  // up boot on a write that is only an optimization would reintroduce the
+  // cold-start latency the warm-up boot exists to avoid.
+  if (timeOff) {
+    const merged = mergeDefaultTimeOffTypes(timeOff);
+    state.timeOffTypes = merged.types;
+    if (merged.added.length > 0) {
+      console.info('[types] adding missing defaults for the active company:',
+        merged.added.join(', '));
+      Store.set(SK.timeOff, merged.types).catch(e =>
+        console.warn('[types] could not persist merged defaults:', e));
+    }
+  } else {
+    state.timeOffTypes = JSON.parse(JSON.stringify(DEFAULT_TIME_OFF_TYPES));
+  }
   state.companies = migrateCompanies(companies || [...SEED_COMPANIES]);
 
   if (entries) {

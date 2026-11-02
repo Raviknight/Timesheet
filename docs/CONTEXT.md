@@ -178,6 +178,76 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026 (sixth): balances sidebar, per-type pool bar, new leave types
+
+Three requests in one.
+
+**1. Balances moved to a right-hand column.** The dashboard is now a grid:
+company tabs full width, then `.dash-main` (Annual, Clock, Pay Period, Period
+Totals, weeks) beside `.dash-side` (Time-Off Balances). Single column by
+default, so phones and narrow windows are unchanged; the side column appears
+only at 1100px and up, where `.app` also widens from 960px to 1320px. That
+widening is the point, since without it there is no room for a side column. The
+side column is sticky, because balances are reference data you check while
+reading the weeks, which run much taller.
+
+**2. The shared-pool bar is split by type.** Previously one bar whose colour
+meant severity (primary, warn, danger by consumption). PTO and Sick share a
+pool, so the bar could not show which type drew it down. Now one segment per
+member type, coloured by position in the group: PTO primary, Sick purple.
+
+Because colour now carries TYPE, the near-limit signal had to move or it would
+have been silently lost. The track takes it instead: `.progress-near` rings in
+warn at 90 percent, `.progress-over` rings in danger at 100. `--danger` is
+deliberately excluded from the segment palette so a type can never look like a
+warning.
+
+Per-type draws come from `result.overdraw`, grouped by code and filtered to the
+current cycle. Cycle `end` is the NEXT cycle's start, so the filter is
+exclusive, matching the engine's own `daysBetween(u.date, currentEnd) > 0`.
+
+The legend badges under the bar now carry a matching colour swatch AND report
+the same cycle-scoped figure as the segments. They previously showed an
+all-time sum, which disagreed with the bar sitting directly above them.
+
+**3. Bereavement, Jury Duty and FMLA added as defaults, 0 days.** Granted as
+needed rather than accrued, so `poolDays: 0` and `countsAgainstPool: false`:
+tracked and labelled, nothing deducted from PTO. Bereavement and Jury Duty are
+paid (8h), FMLA is unpaid.
+
+FMLA was Ravi's own question. Added as an unpaid label with the limits stated
+in schema.js: it marks an absence as FMLA-protected and pays only hours worked,
+which matches unpaid FMLA, but it does NOT model the 12-week entitlement, the
+rolling 12-month window, or running concurrently with PTO. Those are a feature,
+not a type.
+
+**The data wrinkle, and why there is a migration.** DEFAULT_TIME_OFF_TYPES only
+reaches an account through bootstrap, or as a fallback when a company has no
+stored types. Ferry already had its four types in Supabase, so extending the
+array alone would have changed nothing in the live app. `mergeDefaultTimeOffTypes`
+now runs on load and appends any missing default, writing the result back.
+Ravi chose this over new-companies-only.
+
+It is deliberately additive and idempotent: existing types are never modified,
+reordered or removed, because the user may have retuned pool days, hours per
+day or sharing. Only absent codes are appended. The known cost: a type deleted
+on purpose will come back. The write is best effort, so an offline or
+stale-key refusal still leaves the merged list usable for the session and
+retries next load.
+
+Tests: new `scripts/test-timeoff-types.mjs`, 39 assertions. The default set and
+its flags, pay semantics of each new type (Bereavement and Jury Duty pay 8, a
+whole FMLA day pays 0, an FMLA day with 2h worked pays exactly 2), and the
+merge being additive, non-mutating, deep-copying and idempotent, including a
+retuned PTO surviving untouched. The runner discovers it automatically, so the
+suite count went 9 to 10 with no wiring.
+
+Verified visually against the real stylesheet in a harness, since the dashboard
+is behind sign-in: two columns at 1280px with the sidebar sticky, segments
+clearly distinct in light and dark (primary and purple invert per theme), the
+near and over rings visible, and at 375px a single stacked column with
+`position: static` and no horizontal scroll.
+
 ### November 2, 2026 (fifth): dashboard card order
 
 Requested reorder of the Pay Period landing. New order:
