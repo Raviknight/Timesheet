@@ -12,7 +12,7 @@ import { getPayPeriodFor, splitPayPeriodIntoWeeks } from '../core/payPeriod.js';
 import { computeHoursWorked, computeHoursBenefit, entrySegments, dayShort, addDays, fmtDate } from '../core/time.js';
 import { escapeHtml, formatLong, formatHours } from '../core/format.js';
 import { countDaysForCode, sumHoursForCode, sumBenefitForCode } from '../core/balances.js';
-import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../core/coverage.js';
+import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage, benefitHoursWithCoverage } from '../core/coverage.js';
 import { openEntryModal } from '../modals/entryModal.js';
 import { activeCompany } from '../data/activeCompany.js';
 import { clockState, clockInToday, clockOut } from '../core/clock.js';
@@ -243,7 +243,11 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     if (e.timeOff === 'HOLIDAY') {
       ppHoliday += computeHoursBenefit(e, state.settings, timeOffTypes, state.companies);
     } else if (e.timeOff) {
-      ppTimeOff += paidHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
+      // Only the BENEFIT portion belongs here. The worked hours of this day
+      // are already counted by the OT windows below, which sum
+      // computeHoursWorked across every entry including time-off days. Adding
+      // the full paid amount counted them twice and inflated the period total.
+      ppTimeOff += benefitHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
     }
   }
 
@@ -360,7 +364,10 @@ function renderAnnualBlock(state, entries, timeOffTypes, coverage) {
     } else if (e.timeOff) {
       const t = Array.isArray(timeOffTypes) ? timeOffTypes.find(x => x.code === e.timeOff) : null;
       if (!(t && t.unpaid)) {
-        paidTimeOff += paidHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
+        // Benefit only: roundedWorked above already includes this day's worked
+        // hours, so the full paid amount would double count them in
+        // annTotalPaid (roundedWorked + paidTimeOff).
+        paidTimeOff += benefitHoursWithCoverage(e, state.settings, timeOffTypes, state.companies, coverage);
       }
     }
   }
@@ -404,7 +411,13 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap, coverage
       worked += workedH;
       holiday += computeHoursBenefit(dd, state.settings, timeOffTypes, state.companies);
     } else if (dd.timeOff) {
-      timeOff += paidH;
+      // Hours clocked on a PTO/Sick day are worked hours like any other, so
+      // they feed the week's Regular/OT split. Only the benefit lands in the
+      // Time off bucket. Previously workedH was dropped here entirely, so
+      // working 2 hours before taking PTO left those hours out of the OT
+      // calculation while the full paid amount sat under Time off.
+      worked += workedH;
+      timeOff += paidH - workedH;
     } else {
       worked += workedH;
     }

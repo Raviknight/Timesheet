@@ -125,9 +125,11 @@ export function renderLog(state) {
     const [y, mo] = m.split('-');
     let monthTotal = 0;
     for (const e of byMonth[m]) {
-      if (!e.timeOff || e.timeOff === 'HOLIDAY') {
-        monthTotal += paidHoursWithCoverage(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies, covByCo[e._companyId]);
-      }
+      // Every row below contributes, so the header totals the list it heads.
+      // This used to skip PTO/Sick days outright, which meant a day showing
+      // 10.00 in its own row added 0 to the month, and the header did not
+      // match the sum of the rows under it.
+      monthTotal += paidHoursWithCoverage(e, state.settings, timeOffTypesFor(state, e._companyId), state.companies, covByCo[e._companyId]);
     }
     html += `<div style="margin-top:14px;margin-bottom:6px;font-size:12px;font-weight:600;
       color:var(--text-2);text-transform:uppercase;letter-spacing:0.04em">

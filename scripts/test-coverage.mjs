@@ -12,7 +12,7 @@
  * Run with: node scripts/test-coverage.mjs
  */
 import { computeHoursPaid, computeHoursWorked, computeHoursBenefit } from '../src/core/time.js';
-import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../src/core/coverage.js';
+import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage, benefitHoursWithCoverage } from '../src/core/coverage.js';
 
 let pass = 0, fail = 0;
 const check = (name, got, want) => {
@@ -269,6 +269,94 @@ console.log('\n== F. uncovered day still pays the hours worked ==');
   eq('F4: part-worked booking is over pool', r2.coverage['2026-02-16'].covered === false);
   check('F4: over-pool part-worked day pays the 4 worked, not the 4 PTO',
     paidHoursWithCoverage(overWorked, settings, small, companies, r2.coverage), 4);
+}
+
+// ---------------------------------------------------------------------------
+// G. A day's paid hours partition into worked plus benefit, with no overlap.
+//
+// Reported 2026-11-02: after taking a full 8h PTO day on top of 2 hours
+// clocked, the week card still showed 1.50 OT instead of 3.50. The week card
+// and the period totals put the FULL paid amount of a non-Holiday time-off day
+// into the Time off bucket and dropped its worked hours, so those hours never
+// reached the Regular/OT split. Holiday already did the right thing by adding
+// its worked hours and bucketing only the benefit.
+//
+// The invariant the display layers depend on:
+//
+//     paidHoursWithCoverage == computeHoursWorked + benefitHoursWithCoverage
+//
+// Worked hours feed Regular/OT, benefit hours feed Time off or Holiday, and the
+// two never overlap. Locked here for every entry shape that reaches those
+// buckets, because the dashboard functions are DOM-coupled and cannot be
+// called directly from a harness.
+// ---------------------------------------------------------------------------
+console.log('\n== G. paid partitions into worked + benefit ==');
+{
+  const types = typesFor(11);
+  const small = typesFor(1); // 8h pool, to force an over-pool day
+
+  const cases = [
+    ['whole-day PTO', types,
+      { date: '2026-05-04', segments: [], timeOff: 'PTO', status: 'approved' }],
+    ['part-worked PTO, Full day (no override)', types,
+      { date: '2026-05-05', segments: [{ clockIn: '06:58', clockOut: '08:58', breakTaken: true }],
+        timeOff: 'PTO', status: 'approved' }],
+    ['part-worked PTO, 6h override (gap fill)', types,
+      { date: '2026-05-06', segments: [{ clockIn: '06:58', clockOut: '08:58', breakTaken: true }],
+        timeOff: 'PTO', status: 'approved', hoursOverride: 6 }],
+    ['part-worked PTO, full 8h on top', types,
+      { date: '2026-05-07', segments: [{ clockIn: '06:58', clockOut: '08:58', breakTaken: true }],
+        timeOff: 'PTO', status: 'approved', hoursOverride: 8 }],
+    ['worked holiday', types,
+      { date: '2026-05-08', segments: [{ clockIn: '07:00', clockOut: '13:45' }],
+        timeOff: 'HOLIDAY', status: 'approved' }],
+    ['part-worked unpaid', types,
+      { date: '2026-05-11', segments: [{ clockIn: '07:00', clockOut: '09:00' }],
+        timeOff: 'UNPAID', status: 'approved' }],
+    ['plain worked day', types,
+      { date: '2026-05-12', segments: [{ clockIn: '07:00', clockOut: '16:30', breakTaken: true }],
+        timeOff: null }],
+  ];
+
+  for (const [label, tt, e] of cases) {
+    const cov = coverageFromPools(computeCompanyPools({
+      company, timeOffTypes: tt, entries: [e], settings, companies, asOf,
+    }));
+    const paid = paidHoursWithCoverage(e, settings, tt, companies, cov);
+    const workedH = computeHoursWorked(e, settings, companies);
+    const benefit = benefitHoursWithCoverage(e, settings, tt, companies, cov);
+    check(`G: ${label} (paid ${paid})`, workedH + benefit, paid);
+    eq(`G: ${label} benefit is never negative`, benefit >= -1e-9);
+  }
+
+  // The reported day specifically: 2 worked feed OT, 8 feed Time off.
+  const reported = {
+    date: '2026-10-26',
+    segments: [{ clockIn: '06:58', clockOut: '08:58', breakTaken: true }],
+    timeOff: 'PTO', status: 'approved', hoursOverride: 8,
+  };
+  const covR = coverageFromPools(computeCompanyPools({
+    company, timeOffTypes: types, entries: [reported], settings, companies, asOf,
+  }));
+  check('G: reported day worked portion is 2', computeHoursWorked(reported, settings, companies), 2);
+  check('G: reported day benefit portion is 8',
+    benefitHoursWithCoverage(reported, settings, types, companies, covR), 8);
+  check('G: reported day pays 10 in total',
+    paidHoursWithCoverage(reported, settings, types, companies, covR), 10);
+
+  // Over pool with work done: benefit collapses to 0, worked still counts.
+  const over = [
+    { date: '2026-02-02', segments: [], timeOff: 'PTO', status: 'approved' },
+    { date: '2026-02-09', segments: [{ clockIn: '08:00', clockOut: '12:00' }],
+      timeOff: 'PTO', status: 'approved', hoursOverride: 4 },
+  ];
+  const covO = coverageFromPools(computeCompanyPools({
+    company, timeOffTypes: small, entries: over, settings, companies, asOf,
+  }));
+  check('G: over-pool day benefit is 0',
+    benefitHoursWithCoverage(over[1], settings, small, companies, covO), 0);
+  check('G: over-pool day still contributes 4 worked',
+    computeHoursWorked(over[1], settings, companies), 4);
 }
 
 console.log('\n---- report numbers ----');

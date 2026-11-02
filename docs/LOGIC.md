@@ -51,6 +51,31 @@ segment is computed independently and the day is the sum.
 
 Code: `computeSegmentHours` in `src/core/time.js`.
 
+
+### Worked hours on a time-off day are still worked hours
+
+A day carrying a time-off code is not wholly time off. Its paid hours partition
+into two non-overlapping parts:
+
+    paidHoursWithCoverage == computeHoursWorked + benefitHoursWithCoverage
+
+Worked hours feed Regular and OT. Benefit hours feed the Time off or Holiday
+bucket. Clocking 2 hours and then taking a full PTO day pays 10: 2 worked, 8
+benefit, and those 2 hours count toward the OT threshold exactly as they would
+on any other day.
+
+Every layer that buckets hours must respect the split: the week card, the
+pay-period totals, the annual block, and the Daily Log month header. Putting
+the full paid amount into the Time off bucket either loses the worked hours
+from the OT calculation (week card) or counts them twice, once in the OT window
+sum and once in the bucket (period and annual totals).
+
+`benefitHoursWithCoverage` in `src/core/coverage.js` is the single source for
+the benefit figure, so these views cannot drift. It mirrors
+`computeHoursBenefit` but is coverage-aware: on an uncovered day the benefit
+collapses to 0 rather than crediting time off the pool cannot fund, while the
+worked hours still pay.
+
 ## Overtime
 
 Overtime is computed on worked hours only, inside an OT window, against a

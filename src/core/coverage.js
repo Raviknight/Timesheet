@@ -114,3 +114,20 @@ export function paidHoursWithCoverage(entry, settings, timeOffTypes, companies, 
   // hours the user physically worked never is.
   return computeHoursWorked(entry, settings, companies);
 }
+
+/**
+ * The TIME-OFF portion of a day, honoring coverage: paid minus worked.
+ *
+ * This is the figure that belongs in a Time off bucket. The paid total of a
+ * day splits into hours worked and hours of benefit, and those two must not
+ * overlap: counting the full paid amount as time off while the worked hours
+ * also feed Regular/OT counts them twice and inflates the period total.
+ *
+ * Mirrors computeHoursBenefit, but coverage-aware. An uncovered day pays only
+ * its worked hours (see paidHoursWithCoverage), so the benefit correctly
+ * collapses to 0 rather than crediting time off the pool cannot fund.
+ */
+export function benefitHoursWithCoverage(entry, settings, timeOffTypes, companies, coverage) {
+  return paidHoursWithCoverage(entry, settings, timeOffTypes, companies, coverage)
+    - computeHoursWorked(entry, settings, companies);
+}

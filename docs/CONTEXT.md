@@ -178,6 +178,64 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026 (second): worked hours on a time-off day were not worked hours
+
+Reported: after booking the full 8h PTO day on top of 2 hours clocked, the day
+read 10.00 but the week still showed 1.50 OT instead of 3.50.
+
+Same root flaw as the coverage fix earlier the same day, in a different layer.
+The display buckets treated a non-Holiday time-off day as entirely time off:
+
+    } else if (dd.timeOff) {
+      timeOff += paidH;        // workedH silently dropped
+
+`worked` drives the week's Regular/OT split, so 2 clocked hours never reached
+it, while the full 10 paid sat under Time off. **Holiday already did this
+correctly** (`worked += workedH` plus benefit only), which is exactly why
+Holiday "worked" and PTO did not, the question raised at the time.
+
+The invariant now stated and enforced:
+
+    paidHoursWithCoverage == computeHoursWorked + benefitHoursWithCoverage
+
+Worked hours feed Regular/OT, benefit hours feed Time off or Holiday, and the
+two never overlap.
+
+- **src/core/coverage.js:** new `benefitHoursWithCoverage` (paid minus worked,
+  coverage-aware). One source of truth so the layers cannot drift again.
+  Mirrors `computeHoursBenefit` but collapses to 0 on an uncovered day instead
+  of crediting time off the pool cannot fund.
+- **src/ui/dashboard.js:** three sites fixed. The week card now adds worked
+  hours and buckets only the benefit. The pay-period totals bucket the benefit,
+  since the OT windows below already sum `computeHoursWorked` across every
+  entry including time-off days, so the full paid amount was **double counted**
+  in `ppTotal`. The annual block had the same double count against
+  `roundedWorked`.
+- **src/ui/log.js:** the Daily Log month header skipped PTO/Sick rows outright,
+  so a day showing 10.00 in its own row added 0 to the month above it. The
+  header now totals the list it heads. This changes a displayed figure rather
+  than fixing a crash, so it is worth confirming: if that number was meant to
+  be "worked hours this month" rather than "sum of these rows", it should go
+  back.
+
+Verified against the reported week before and after: per-day worked 2.00, 9.50,
+8.75, 9.25, 9.00, 5.00 gives worked 43.50, time off 8.00, Regular 40.00, **OT
+3.50** (was 1.50), week total 51.50.
+
+Tests: `scripts/test-coverage.mjs` section G, nineteen assertions pinning the
+partition invariant across every shape that reaches these buckets (whole-day
+PTO, part-worked with and without an override, the full-8h-on-top case, a
+worked holiday, part-worked unpaid, a plain worked day, and an over-pool day
+where the benefit collapses to 0 but the worked hours still count). The worked
+holiday case computes 14.75, matching the New Year's Day screenshot. 71
+assertions in that harness, all 9 suites green.
+
+Pattern worth noting for whoever picks this up: three bugs in two days all came
+from the same assumption, that a day carrying a time-off code is wholly time
+off. It is not. A day splits into worked and benefit, and every layer that
+buckets hours has to respect that split. The Holiday path was the reference
+implementation the whole time.
+
 ### November 2, 2026: coverage was deleting worked hours
 
 Reported with a screenshot: Mon Oct 26 had 06:58-08:58 clocked plus a PTO code.
