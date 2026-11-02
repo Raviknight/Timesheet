@@ -178,6 +178,29 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026 (fifth): dashboard card order
+
+Requested reorder of the Pay Period landing. New order:
+
+    company tabs -> Annual -> Clock -> Pay Period -> Period Totals
+      -> week breakdown -> Time-Off Balances
+
+Previously Pay Period and Clock came first and Annual sat below Period Totals.
+
+Markup-only change in `index.html`, no logic touched. Everything the dashboard
+reads is found by id, so the cards are order-independent by construction, which
+is why this is safe to rearrange.
+
+Left where they were, since the request did not mention them: the company tab
+strip stays at the very top (it scopes everything below it, including Annual,
+so it has to lead), and Time-Off Balances stays at the bottom.
+
+Verified in the built bundle rather than by eye, because a stray closing div
+would reorder silently: the dashboard view's direct children come back as
+exactly the seven expected cards in the new order, and all seventeen element
+ids the dashboard reaches for still resolve. A broken nesting would have shown
+up as extra or nested children in that list.
+
 ### November 2, 2026 (fourth): prev/next pay-period stepping
 
 Requested: the selector only had Current, Last and Other, so reaching the next
