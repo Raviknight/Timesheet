@@ -357,6 +357,17 @@ th {
   border: 1px solid var(--danger);
 }
 
+/* Secondary line under the Hrs figure on a day that is part worked, part time
+   off. Right-aligned to sit under the number, and deliberately quiet: the
+   total is the figure that matters, this only explains how it got there. */
+.hrs-split {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
 .week-totals {
   display: flex; gap: 12px;
   margin-top: 8px; padding-top: 8px;

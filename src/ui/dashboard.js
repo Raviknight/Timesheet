@@ -428,11 +428,21 @@ function renderWeekCard(week, state, company, timeOffTypes, entriesMap, coverage
     const firstIn = segs.length ? (segs[0].clockIn || '') : '';
     const lastOut = segs.length ? (segs[segs.length - 1].clockOut || '') : '';
     const segBadge = segs.length > 1 ? ` <span class="badge">${segs.length}×</span>` : '';
+
+    // On a day that is part worked and part time off, the paid figure alone
+    // looks wrong against the clock times in the same row: 06:58 to 08:58
+    // paying 10.00 reads as an error until you know 8 of it is the time-off
+    // benefit. Spell the split out, but only when both parts are non-zero, so
+    // ordinary days and whole-day bookings stay a single clean number.
+    const benefitH = paidH - workedH;
+    const splitNote = (dd.timeOff && workedH > 0 && benefitH > 0)
+      ? `<div class="hrs-split">${workedH.toFixed(2)} worked + ${benefitH.toFixed(2)} ${escapeHtml(dd.timeOff)}</div>`
+      : '';
     html += `<tr style="cursor:pointer" data-date="${dd.date}">
       <td>${dayShort(dd.date)} ${dd.date.slice(8, 10)}</td>
       <td>${firstIn}${segBadge}</td>
       <td>${lastOut}</td>
-      <td class="num">${paidH > 0 ? paidH.toFixed(2) : '—'}</td>
+      <td class="num">${paidH > 0 ? paidH.toFixed(2) : '—'}${splitNote}</td>
       <td>${pill}</td>
     </tr>`;
   }

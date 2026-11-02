@@ -178,6 +178,27 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026 (third): Hrs column spells out the worked/benefit split
+
+Follow-up question after the OT fix: should a part-worked time-off day show the
+total, or the split? Ravi picked total with the split beneath.
+
+`HRS` means paid hours, so 10.00 was already correct and is what makes the
+column reconcile with the week footer. The problem was that it reads as an
+error next to `06:58 / 08:58` in the same row, with nothing explaining where
+the other 8 hours came from. The same ambiguity applied to a worked holiday:
+New Year's Day shows 14.75 against 07:00 to 13:45.
+
+The cell now carries a muted second line, `2.00 worked + 8.00 PTO`, shown only
+when BOTH parts are non-zero. Ordinary days and whole-day bookings stay a
+single clean number, so the table does not get noisier for the common case.
+
+Verified by rendering the real stylesheet against a mock week card rather than
+guessing, since the dashboard needs sign-in:
+- light and dark mode both legible (`.hrs-split` uses `--text-3`)
+- at 375px phone width there is no horizontal scroll, table 330px of 375
+- the holiday row renders the same way, 14.75 with 6.75 worked + 8.00 HOLIDAY
+
 ### November 2, 2026 (second): worked hours on a time-off day were not worked hours
 
 Reported: after booking the full 8h PTO day on top of 2 hours clocked, the day
