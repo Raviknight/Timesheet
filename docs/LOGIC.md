@@ -150,6 +150,23 @@ multiplied by 8 for hours). The app generalizes this to multiple pools with
 
 Code: `src/core/balances.js`.
 
+
+### Coverage never withholds worked hours
+
+Pool coverage can withhold the time-off portion of a day when the balance
+cannot fund it (over pool, or a pending booking). It must never withhold hours
+that were actually clocked. `paidHoursWithCoverage` returns
+`computeHoursWorked` for an uncovered day, not 0.
+
+This matters more than an over-pool edge case suggests. A whole-day PTO or Sick
+code on a part-worked day draws **nothing** from the pool, because the draw is
+`computeHoursBenefit` (paid minus worked) and a non-additive type lets the
+segments account for the whole paid figure. The accrual engine treats a
+zero-hour draw as uncovered (`u.hours > 0` in `src/core/accrual.js`), so a
+perfectly ordinary entry with a full balance reaches the uncovered branch. Until
+November 2026 that branch returned 0 and silently deleted the clocked time from
+the week card and the period total.
+
 ## PTO accrual
 
 The pool balance, accrual, and coverage model. The engine is pure

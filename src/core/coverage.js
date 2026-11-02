@@ -15,7 +15,7 @@
  */
 
 import { computePoolAccrual } from './accrual.js';
-import { computeHoursPaid, computeHoursBenefit } from './time.js';
+import { computeHoursPaid, computeHoursBenefit, computeHoursWorked } from './time.js';
 
 /**
  * Run the accrual engine once per pool-owner group for a company. Mirrors the
@@ -97,6 +97,20 @@ export function paidHoursWithCoverage(entry, settings, timeOffTypes, companies, 
   const t = Array.isArray(timeOffTypes) ? timeOffTypes.find(x => x.code === entry.timeOff) : null;
   if (!t || !t.countsAgainstPool) return base; // Holiday (additive), Unpaid, unknown
   const cov = coverage && coverage[entry.date];
-  if (!cov) return base;          // out of engine scope -> pay as before
-  return cov.covered ? base : 0;  // covered pays base; uncovered/pending -> 0
+  if (!cov) return base;    // out of engine scope -> pay as before
+  if (cov.covered) return base;
+
+  // Uncovered or pending: the POOL portion does not pay, but hours actually
+  // clocked that day always do. This used to `return 0`, which deleted real
+  // worked time: a day with 2 hours clocked plus a PTO code reported zero
+  // hours in the week card and dropped out of the period total entirely.
+  //
+  // It bit the ordinary case, not just an over-pool one. A whole-day PTO code
+  // on a part-worked day draws nothing from the pool (benefit is paid minus
+  // worked, which is 0 when segments cover the day), and the engine marks a
+  // zero-hour draw as not covered, so an everyday entry landed here.
+  //
+  // Withholding pool hours the balance cannot fund is correct. Withholding
+  // hours the user physically worked never is.
+  return computeHoursWorked(entry, settings, companies);
 }

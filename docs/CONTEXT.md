@@ -178,6 +178,51 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026: coverage was deleting worked hours
+
+Reported with a screenshot: Mon Oct 26 had 06:58-08:58 clocked plus a PTO code.
+The entry modal said 2.00, but the week card showed a dash for hours and the
+week total (41.50) was exactly Tue through Sat, excluding Monday altogether.
+
+Root cause in `paidHoursWithCoverage`. The last line read:
+
+    return cov.covered ? base : 0;
+
+so an uncovered pool day paid nothing, including the part physically worked.
+Withholding pool hours the balance cannot fund is correct; withholding clocked
+time never is.
+
+**This was not an over-pool edge case, which is why it hit an ordinary entry.**
+A whole-day PTO code on a part-worked day draws nothing from the pool, because
+the draw is `computeHoursBenefit` (paid minus worked) and the segments already
+account for the whole paid figure, giving 0. The accrual engine then marks a
+zero-hour draw as not covered, via `u.status === 'approved' && u.hours > 0 &&
+...` in accrual.js. So a normal day with a nearly untouched balance took the
+zero path. Reproduced before fixing: coverage `{covered:false}`, paid 0.
+
+Fix: an uncovered or pending day now returns `computeHoursWorked` rather than
+0. Whole-day bookings have no segments, so they still pay 0 and the previous
+behavior is unchanged there. Verified against the reported entry: 2.00, up
+from 0.
+
+Left alone: the `u.hours > 0` guard that makes a zero-hour draw uncovered. It
+is arguably wrong (a draw of nothing is trivially covered), but with the pay
+path fixed it no longer affects any figure, and changing engine semantics to
+tidy a flag that nothing now depends on is not worth the risk.
+
+Tests: `scripts/test-coverage.mjs` section F, nine assertions. The reported
+entry, a covered whole day, an uncovered whole day still paying 0, and an
+over-pool part-worked day paying the worked hours but not the time-off
+portion. 52 assertions in that harness now, all 9 suites green.
+
+**Also answered a question worth recording, since it is the design and not a
+bug:** Holiday pays on top of worked hours, PTO and Sick do not. Holiday is
+`additive: true`, so 6.75h worked on New Year's Day plus an 8h holiday pays
+14.75. PTO and Sick are non-additive and resolve as segments-win, so they fill
+the rest of a day rather than bonusing on top of it. Filling the gap on a
+part-worked day is what the Partial duration added on Oct 31 is for: 2 worked
+plus a 6h override pays 8 and draws 6.
+
 ### October 31, 2026: part-worked time-off days (Partial duration)
 
 Reported: worked 2 hours on Monday then took sick leave, and the app would give

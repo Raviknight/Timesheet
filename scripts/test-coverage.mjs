@@ -11,7 +11,7 @@
  *
  * Run with: node scripts/test-coverage.mjs
  */
-import { computeHoursPaid, computeHoursWorked } from '../src/core/time.js';
+import { computeHoursPaid, computeHoursWorked, computeHoursBenefit } from '../src/core/time.js';
 import { computeCompanyPools, coverageFromPools, paidHoursWithCoverage } from '../src/core/coverage.js';
 
 let pass = 0, fail = 0;
@@ -212,6 +212,63 @@ console.log('\n== E. worked 2h then sick for the rest of an 8h day ==');
   const noOverride = { ...e, hoursOverride: null };
   check('E: with no override the day pays only the 2 worked',
     computeHoursPaid(noOverride, settings, types, companies), 2);
+}
+
+// ---------------------------------------------------------------------------
+// F. Coverage must never withhold hours that were actually worked.
+//
+// Reported 2026-11-02 with a screenshot: Mon Oct 26 had 06:58-08:58 clocked
+// plus a PTO code, and the week card showed a dash for hours while the week
+// total excluded the day entirely. paidHoursWithCoverage returned 0 for any
+// uncovered pool day, including the part that was physically worked.
+//
+// It was not an over-pool edge case. A whole-day PTO code on a part-worked day
+// draws nothing from the pool (benefit is paid minus worked, which is 0 when
+// the segments already cover the day), and the engine marks a zero-hour draw
+// as not covered (see `u.hours > 0` in accrual.js), so an everyday entry with
+// a nearly full balance landed on the zero path.
+// ---------------------------------------------------------------------------
+console.log('\n== F. uncovered day still pays the hours worked ==');
+{
+  // F1: the reported entry, against a nearly untouched 11-day pool.
+  const types = typesFor(11);
+  const reported = {
+    date: '2026-10-26',
+    segments: [{ clockIn: '06:58', clockOut: '08:58', breakTaken: true }],
+    timeOff: 'PTO',
+    status: 'approved',
+  };
+  const r1 = poolRun(types, [reported]);
+  eq('F1: engine marks the zero-hour draw uncovered',
+    r1.coverage['2026-10-26'] && r1.coverage['2026-10-26'].covered === false);
+  check('F1: still pays the 2 hours clocked',
+    paidHoursWithCoverage(reported, settings, types, companies, r1.coverage), 2);
+  check('F1: and draws nothing from the pool',
+    computeHoursBenefit(reported, settings, types, companies), 0);
+
+  // F2 / F3: a 1-day (8h) pool with three whole-day bookings plus one
+  // part-worked day, so later bookings are genuinely over pool.
+  const small = typesFor(1);
+  const covered   = { date: '2026-02-02', segments: [], timeOff: 'PTO', status: 'approved' };
+  const overWhole = { date: '2026-02-09', segments: [], timeOff: 'PTO', status: 'approved' };
+  const overWorked = {
+    date: '2026-02-16',
+    segments: [{ clockIn: '08:00', clockOut: '12:00' }],
+    timeOff: 'PTO', status: 'approved', hoursOverride: 4,
+  };
+  const r2 = poolRun(small, [covered, overWhole, overWorked]);
+
+  eq('F2: first booking is covered', r2.coverage['2026-02-02'].covered === true);
+  check('F2: covered whole day pays 8',
+    paidHoursWithCoverage(covered, settings, small, companies, r2.coverage), 8);
+
+  eq('F3: second booking is over pool', r2.coverage['2026-02-09'].covered === false);
+  check('F3: uncovered whole day pays 0, nothing was worked',
+    paidHoursWithCoverage(overWhole, settings, small, companies, r2.coverage), 0);
+
+  eq('F4: part-worked booking is over pool', r2.coverage['2026-02-16'].covered === false);
+  check('F4: over-pool part-worked day pays the 4 worked, not the 4 PTO',
+    paidHoursWithCoverage(overWorked, settings, small, companies, r2.coverage), 4);
 }
 
 console.log('\n---- report numbers ----');
