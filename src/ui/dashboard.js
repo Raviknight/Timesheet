@@ -197,6 +197,10 @@ export function renderDashboard(state, selectedCompany = selectedDashboardCompan
     `${formatLong(pp.start)} — ${formatLong(pp.end)}`;
   document.getElementById('ppOtherPicker').style.display =
     state.ui.ppMode === 'other' ? 'block' : 'none';
+  // Keep the picker in step with where the user actually is, so arrowing into
+  // an arbitrary period and then opening Other does not show a stale date.
+  const otherInput = document.getElementById('ppOtherDate');
+  if (otherInput && state.ui.ppOtherDate) otherInput.value = state.ui.ppOtherDate;
 
   const inPP = Object.values(entries)
     .filter(e => e.date >= pp.start && e.date <= pp.end);
@@ -615,7 +619,41 @@ function renderBalances(state, timeOffTypes = state.timeOffTypes, entriesMap = s
   container.innerHTML = html || '<div class="muted">No time-off pools configured.</div>';
 }
 
+/**
+ * Point the dashboard at the pay period `dir` steps away from the one on
+ * screen. -1 is the previous period, +1 the next.
+ *
+ * Works by resolving a date just OUTSIDE the current period and letting
+ * getPayPeriodForDate place it. That keeps this correct for every frequency
+ * (weekly, biweekly, semimonthly, monthly, advanced anchor) with no
+ * per-frequency arithmetic here, and no drift from the resolver the rest of
+ * the app uses.
+ */
+function stepPayPeriod(state, dir) {
+  const company = selectedDashboardCompany(state);
+  if (!company) return;
+  const cur = getPayPeriodFor(state.ui.ppMode, state.ui.ppOtherDate, company);
+  state.ui.ppOtherDate = dir < 0 ? addDays(cur.start, -1) : addDays(cur.end, 1);
+
+  // Snap the mode back to Current or Last when the landing period is one of
+  // those, so the highlighted button keeps telling the truth and stepping home
+  // does not leave the Other picker open over a period that has a proper name.
+  const target = getPayPeriodFor('other', state.ui.ppOtherDate, company);
+  const current = getPayPeriodFor('current', null, company);
+  const last = getPayPeriodFor('last', null, company);
+  if (target.start === current.start) state.ui.ppMode = 'current';
+  else if (target.start === last.start) state.ui.ppMode = 'last';
+  else state.ui.ppMode = 'other';
+
+  document.querySelectorAll('.pp-selector button').forEach(x =>
+    x.classList.toggle('active', x.dataset.pp === state.ui.ppMode));
+  renderDashboard(state);
+}
+
 export function wireDashboard(state) {
+  document.querySelectorAll('[data-pp-step]').forEach(b => {
+    b.onclick = () => stepPayPeriod(state, Number(b.dataset.ppStep));
+  });
   document.querySelectorAll('.pp-selector button').forEach(b => {
     b.onclick = () => {
       state.ui.ppMode = b.dataset.pp;

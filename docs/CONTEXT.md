@@ -178,6 +178,47 @@ addition once we know where modal close handlers live.
 
 ## Session log
 
+### November 2, 2026 (fourth): prev/next pay-period stepping
+
+Requested: the selector only had Current, Last and Other, so reaching the next
+or previous period from somewhere far back meant picking dates by hand.
+
+Added `‹` and `›` buttons flanking the date range, which read as navigation
+without needing a label.
+
+**The stepper does no frequency arithmetic.** It resolves a date just OUTSIDE
+the period on screen and lets `getPayPeriodForDate` place it:
+
+    prev = getPayPeriodForDate(addDays(cur.start, -1))
+    next = getPayPeriodForDate(addDays(cur.end,   +1))
+
+So weekly, biweekly, semimonthly, monthly and advanced all work with no
+per-frequency branching, and the stepper cannot drift from the resolver the
+rest of the app uses. It leans on one property: consecutive periods must be
+contiguous, with no gap and no overlap. A one-day hole in any frequency would
+make the arrows skip a period or stall, so that property is now pinned by
+tests rather than assumed.
+
+The mode buttons snap back when stepping lands on a period with a proper name:
+arrow back into the current period and Current highlights again, rather than
+leaving Other selected over a period that is not "other" at all. The Other
+date input is also kept in sync, so opening it after arrowing around does not
+show a stale date.
+
+Placement note for whoever edits this next: the step buttons are deliberately
+OUTSIDE `.pp-selector`. `wireDashboard` binds every button inside that
+container to `ppMode`, so a stepper button living there would set the mode to
+undefined on click.
+
+Tests: `scripts/test-payPeriod.mjs` section 7, twenty-five assertions across
+all five frequencies. Contiguity on both sides, six steps back then six forward
+returning to exactly the same period (the reported pain, being far back and
+needing to get home), and each single step moving in the right direction.
+
+Verified visually against the real markup in a harness, since the dashboard
+needs sign-in: light and dark both fine, no horizontal scroll at 375px, 32px
+tap targets, range does not wrap.
+
 ### November 2, 2026 (third): Hrs column spells out the worked/benefit split
 
 Follow-up question after the OT fix: should a part-worked time-off day show the

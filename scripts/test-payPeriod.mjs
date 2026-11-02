@@ -14,6 +14,7 @@ import {
   getPayPeriodForDate,
   splitPayPeriodIntoWeeks,
 } from '../src/core/payPeriod.js';
+import { addDays } from '../src/core/time.js';
 
 let failures = 0;
 function eq(label, actual, expected) {
@@ -256,6 +257,61 @@ eq('splitWeeks: month-long period with Mon start',
   ]);
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 7. Prev/next pay-period stepping (added 2026-11-02).
+//
+// The dashboard stepper does not do frequency arithmetic. It resolves a date
+// just OUTSIDE the period on screen and lets getPayPeriodForDate place it:
+//
+//     prev = getPayPeriodForDate(addDays(cur.start, -1))
+//     next = getPayPeriodForDate(addDays(cur.end,   +1))
+//
+// That is only correct if consecutive periods are contiguous, with no gap and
+// no overlap, for every frequency. If a frequency ever leaves a one-day hole
+// between periods, the stepper would silently skip a period or stall. These
+// assertions pin the property the stepper leans on.
+// ---------------------------------------------------------------------------
+console.log('\n-- 7. prev/next stepping --');
+{
+  const stepFreqs = [
+    ['weekly', { payFrequency: 'weekly', weekStartDow: 1 }],
+    ['biweekly', { payFrequency: 'biweekly', biweeklyStartParity: 'odd' }],
+    ['semimonthly', { payFrequency: 'semimonthly', semiFirstDay: 1, semiSecondDay: 16 }],
+    ['monthly', { payFrequency: 'monthly', monthlyStartDay: 1 }],
+    ['advanced', { payFrequency: 'advanced', advancedAnchorDate: '2026-01-05', advancedCycleDays: 10 }],
+  ];
+  const stepFrom = (ref, company, dir) => {
+    const cur = getPayPeriodForDate(ref, company);
+    return dir < 0 ? addDays(cur.start, -1) : addDays(cur.end, 1);
+  };
+
+  for (const [name, company] of stepFreqs) {
+    const here = getPayPeriodForDate('2026-10-26', company);
+
+    // Contiguous on both sides: the day after the previous period's end is this
+    // period's start, and the day after this end is the next period's start.
+    const prev = getPayPeriodForDate(addDays(here.start, -1), company);
+    const next = getPayPeriodForDate(addDays(here.end, 1), company);
+    eq(`${name}: previous period abuts this one`, addDays(prev.end, 1), here.start);
+    eq(`${name}: next period abuts this one`, addDays(here.end, 1), next.start);
+
+    // Stepping back N and forward N returns to exactly the same period, so the
+    // arrows cannot drift over a long walk (the reported pain: being far back
+    // and needing to get home).
+    let ref = '2026-10-26';
+    for (let i = 0; i < 6; i++) ref = stepFrom(ref, company, -1);
+    for (let i = 0; i < 6; i++) ref = stepFrom(ref, company, +1);
+    eq(`${name}: 6 back then 6 forward returns home`,
+      getPayPeriodForDate(ref, company), here);
+
+    // Each step actually moves, and always in the right direction.
+    const backOne = getPayPeriodForDate(stepFrom('2026-10-26', company, -1), company);
+    const fwdOne = getPayPeriodForDate(stepFrom('2026-10-26', company, +1), company);
+    eq(`${name}: one step back is earlier`, backOne.start < here.start, true);
+    eq(`${name}: one step forward is later`, fwdOne.start > here.start, true);
+  }
+}
 
 if (failures > 0) {
   console.error(`\n${failures} test(s) FAILED`);

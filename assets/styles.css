@@ -304,6 +304,37 @@ th {
   border-radius: var(--radius);
   cursor: pointer; font-size: 13px;
 }
+/* Prev/next stepper flanking the date range. Deliberately NOT inside
+   .pp-selector: wireDashboard binds every button in there to ppMode, so a
+   stepper button living there would set the mode to undefined on click. */
+.pp-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pp-nav #ppRange {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+}
+.pp-nav button {
+  flex: 0 0 auto;
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 18px; line-height: 1;
+  padding: 0;
+}
+.pp-nav button:hover {
+  border-color: var(--border-2);
+  color: var(--text);
+}
+
 .pp-selector button.active {
   background: var(--primary);
   color: white;

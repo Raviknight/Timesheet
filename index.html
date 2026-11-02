@@ -72,7 +72,11 @@
         <label>Pick any date in the desired period</label>
         <input type="date" id="ppOtherDate">
       </div>
-      <div id="ppRange" class="muted" style="font-size:13px;margin-top:6px"></div>
+      <div class="pp-nav">
+        <button type="button" data-pp-step="-1" aria-label="Previous pay period" title="Previous pay period">&lsaquo;</button>
+        <div id="ppRange" class="muted"></div>
+        <button type="button" data-pp-step="1" aria-label="Next pay period" title="Next pay period">&rsaquo;</button>
+      </div>
     </div>
 
     <div class="card" id="clockControl"></div>
